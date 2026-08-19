@@ -1,0 +1,691 @@
+---
+title: "homophony"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(readr)
+library(lme4)
+library(ggplot2)
+```
+
+
+```{r}
+
+#NDS data
+
+setwd("C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/homophony article/NDS")
+
+NDS_data <- read_delim(file.choose(), delim = ";")
+
+head(data)
+str(data)
+
+clean_NDS <- NDS_data %>%
+  filter(
+    MN_class %in% c("a", "e", "doubl a/e"),
+    present_tense_r %in% c("YES", "NO"),
+    Cell %in% c("present", "preterit", "supine")
+  ) %>%
+  mutate(
+    class_label = case_when(
+      MN_class == "a"         ~ "a-class",
+      MN_class == "e"         ~ "e-class",
+      MN_class == "doubl a/e" ~ "a/e doublet"
+    ),
+    homophony_locality = ifelse(present_tense_r == "NO", "Lost -r", "Retained -r")
+  )
+
+clean_NDS %>%
+  distinct(Locality, homophony_locality) %>%  
+  count(homophony_locality, name = "n_localities")
+
+```
+
+
+```{r}
+#visualizations of data for the NDS dataset
+
+# distribution of a/e by cell
+ggplot(clean_NDS, aes(x = factor(Cell, levels = c("present", "preterit", "supine")), fill = class_label)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("a-class" = "#0072B2", "e-class" = "#2F2F2F", "a/e doublet" = "#BDBDBD")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(x = "Cell", y = "Percentage of attested forms", fill = "Inflectional class") +
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12),
+        legend.text  = element_text(size = 12),
+        legend.position = "right")
+
+
+#Distribution per homophonous and non-homophonous localities
+
+ggplot(clean_NDS, aes(x = homophony_locality, fill = class_label)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("a-class" = "#0072B2", "e-class" = "#2F2F2F", "a/e doublet" = "#BDBDBD")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(x = "Homophony status", y = "Percentage of attested forms", fill = "Inflectional class") +
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12),
+        legend.text  = element_text(size = 12),
+        legend.position = "right")
+
+  
+```
+
+
+```{r}
+
+#The glists data
+directory_path <- "C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/homophony article/g-lists"
+
+#loading the data
+Glists_data <- list.files(directory_path, pattern = "*.csv", full.names = TRUE)
+
+
+combined_data_Glists <- do.call(rbind, lapply(Glists_data, function(file) {
+  read_delim(file, delim = ";", locale = locale(encoding = "UTF-8"))
+}))
+
+str(combined_data_Glists)
+
+#removing NA rows in Dialect
+cleaned_data_Glists <- combined_data_Glists %>% filter(!is.na(Dialect))
+
+#removing all irrelevant verbs - keeping only sources G14, unless hist_status is a, and all other sources only if hist_status is a
+filtered_data_G <- cleaned_data_Glists %>%
+  filter(
+    (Source == "G14" & Hist_status %in% c("loan", "non", "a")) |
+    (Source != "G14" & Hist_status == "a")
+  )
+#now i need to exclude any verbs that have other inflections, like shortV or strong
+lexemes_to_remove <- c("hoeya", "nya", "skya", "snoe", "bia", "fria", "spe", "tae", "skoda", "hauga", "skrika") 
+
+clean_data_G <- filtered_data_G %>%
+  filter(!(Lexeme %in% lexemes_to_remove))
+
+#further cleaning, keeping only relevant values, cells etc
+clean_data_G <- clean_data_G %>%
+  filter(
+    MN_class %in% c("a", "e", "a/e"),
+    present_r %in% c("YES", "NO"),
+    Cell %in% c("pres", "pret", "sup")
+  ) %>%
+  mutate(
+    class_label = case_when(
+      MN_class == "a"         ~ "a-class",
+      MN_class == "e"         ~ "e-class",
+      MN_class == "a/e" ~ "a/e doublet"
+    ),
+    homophony_locality = ifelse(present_r == "NO", "Lost -r", "Retained -r")
+  )
+
+
+clean_data_G %>%
+  distinct(Dialect, homophony_locality) %>%   # one row per locality + status
+  count(homophony_locality, name = "n_localities")
+
+
+
+```
+
+```{r}
+#visualizations for the G-lists
+
+#distribution per cell
+ggplot(clean_data_G, aes(x = factor(Cell, levels = c("pres", "pret", "sup")), fill = class_label)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("a-class" = "#0072B2", "e-class" = "#2F2F2F", "a/e doublet" = "#BDBDBD")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_x_discrete(
+    labels = c(
+      "pres" = "present",
+      "pret" = "preterit",
+      "sup"  = "supine"
+    )
+  ) +
+  labs(x = "Cell", y = "Percentage of attested forms", fill = "Inflectional class") +
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12),
+        legend.text  = element_text(size = 12),
+        legend.position = "right")
+
+
+#this is a second plot showing distribution per homophonous and non-homophonous localities
+
+ggplot(clean_data_G, aes(x = homophony_locality, fill = class_label)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("a-class" = "#0072B2", "e-class" = "#2F2F2F", "a/e doublet" = "#BDBDBD")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(x = "Homophony status", y = "Percentage of attested forms", fill = "Inflectional class") +
+  theme_classic(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12),
+        legend.text  = element_text(size = 12),
+        legend.position = "right")
+
+```
+
+
+
+
+```{r}
+#statistical analysis of NDS and g-lists dataset together
+
+NDS_renamed <- clean_NDS %>%
+  rename(
+    "present_r" = "present_tense_r",
+  ) %>%
+  rename(
+    "Dialect" = "Locality",
+  ) %>%
+  mutate(
+    Cell = fct_recode(
+      Cell,
+      "pres" = "present",
+      "pret" = "preterit",
+      "sup" = "supine"
+    ),
+    MN_class = fct_recode(
+      MN_class,
+      "a/e" = "doubl a/e"
+    )
+  )
+
+clean_data_G_filtered <- clean_data_G %>%
+  filter(Source != "NDS")
+
+clean_data_G_analysis <- clean_data_G_filtered %>%
+  select(
+    Lexeme,
+    Cell,
+    Dialect,        
+    MN_class,
+    present_r
+  )
+
+clean_data_NDS_analysis <- NDS_renamed %>%
+  select(
+    Lexeme,
+    Cell,
+    Dialect,        
+    MN_class,
+    present_r
+  )
+
+clean_data_G_analysis <- clean_data_G_analysis %>%
+  mutate(
+    MN_class  = as.factor(MN_class),
+    Cell      = as.factor(Cell),
+    present_r = as.factor(present_r),
+    Dialect   = as.factor(Dialect),
+    Lexeme    = as.factor(Lexeme)
+  )
+
+clean_data_NDS_analysis <- clean_data_NDS_analysis %>%
+  mutate(
+    MN_class  = as.factor(MN_class),
+    Cell      = as.factor(Cell),
+    present_r = as.factor(present_r),
+    Dialect   = as.factor(Dialect),
+    Lexeme    = as.factor(Lexeme)
+  )
+
+joined_NDS_G_data <- bind_rows(
+  clean_data_NDS_analysis,
+  clean_data_G_analysis
+)
+
+joined_NDS_G_data <- joined_NDS_G_data %>%
+  mutate(
+    Cell = relevel(Cell, ref = "pret") #set preterit as reference level, since i am interested in comparing the pret-sup
+  )
+
+joined_NDS_G_data <- joined_NDS_G_data %>%
+  mutate(
+    MN_class = fct_recode(MN_class, "e" = "a/e")
+  )
+
+model_hom <- glmer(MN_class ~ present_r + Cell + (1 | Dialect) + (1 | Lexeme),
+               data = joined_NDS_G_data,
+               family = binomial)
+
+summary(model_hom)
+
+#now repeat only for dialect points with homophony
+
+joined_NDS_G_data_hom <- filter(joined_NDS_G_data, present_r == "NO")
+
+model_hom_only <- glmer(MN_class ~ Cell + (1 | Dialect) + (1 | Lexeme),
+               data = joined_NDS_G_data_hom,
+               family = binomial)
+
+summary(model_hom_only)
+
+#
+
+model_hom_check <- glmer(
+  MN_class ~ present_r * Cell + (1 | Dialect) + (1 | Lexeme),
+  data   = joined_NDS_G_data,
+  family = binomial
+)
+
+summary(model_hom_check)
+```
+
+
+
+```{r}
+#analysis of the HA dataset
+
+setwd("C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/homophony article/ha_database")
+
+HA_data <- read_delim(file.choose(), delim = ";")
+
+#EDA: how many localities, municipalities and dialect areas in dataset?
+
+HA_data %>%
+  summarise(
+    n_localities     = n_distinct(Locality[!is.na(H_general)]),
+    n_municipalities = n_distinct(Municipality),
+    n_dialect_areas  = n_distinct(Traditional_dialect_area)
+  )
+
+HA_data %>%
+  filter(!is.na(H_general), H_general != "NA") %>%
+  group_by(Traditional_dialect_area) %>%
+  summarise(
+    n_localities     = n_distinct(Locality),
+    n_municipalities = n_distinct(Municipality),
+    .groups = "drop"
+  )
+
+
+#examining western dialects for pres-pret homophony first
+#filter
+western_d <- HA_data %>%
+  filter(General_dialect_area == "Western")
+
+locality_status_West <- western_d %>%
+  arrange(Traditional_dialect_area, Municipality, Locality) %>%         
+  group_by(Traditional_dialect_area, Municipality, Locality) %>%
+  summarise(
+    r_status = first(na.omit(r_status)),
+    homophony = first(na.omit(H_general)),
+    .groups = "drop")
+
+
+#now looking into homophony
+#assign municipalities a status
+municipality_homophony_class <- locality_status_West %>%
+  filter(!is.na(homophony)) %>%
+  group_by(Municipality, Traditional_dialect_area) %>%
+  summarise(
+    n_total_localities = n(),
+    n_known = sum(homophony %in% c("yes", "no", "yes/no")),   # yes, no, or yes/no count as known
+    n_yes = sum(homophony == "yes" | homophony == "yes/no", na.rm = TRUE),
+    n_no  = sum(homophony == "no"  | homophony == "yes/no", na.rm = TRUE),
+    muni_status = case_when(
+      n_known == 0               ~ NA_character_,
+      n_yes > 0 & n_no == 0      ~ "homophonous",
+      n_no > 0  & n_yes == 0     ~ "non-homophonous",
+      n_yes > 0 & n_no > 0       ~ "mixed"
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(muni_status)) 
+
+#download
+library(writexl)
+writexl::write_xlsx(municipality_homophony_class, "municipality_homophony_class.xlsx")
+
+#overall counts
+counts_by_area_muni_hom_West <- municipality_homophony_class %>%
+  group_by(Traditional_dialect_area, muni_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = muni_status, values_from = n, values_fill = 0)
+
+print(counts_by_area_muni_hom_West)
+
+#totals
+
+total_by_status <- municipality_homophony_class %>%
+  count(muni_status, name = "n")
+total_by_status
+
+
+#looking into the loss of -r in the present tense as an explanation of why there is or there is no homophony
+#per municipality (=localities within a municipality taken together)
+
+municipality_r_class <- locality_status_West %>%
+  # keep only localities with a non-NA r_status
+  filter(!is.na(r_status)) %>%
+  group_by(Municipality, Traditional_dialect_area) %>%
+  summarise(
+    n_total_localities = n(),
+    # count localities that indicate lost (includes "lost" and "lost/retained")
+    n_lost = sum(r_status == "lost" | r_status == "lost/retained"),
+    # count localities that indicate retained (includes "retained" and "lost/retained")
+    n_retained = sum(r_status == "retained" | r_status == "lost/retained"),
+    muni_r_status = case_when(
+      n_lost > 0 & n_retained == 0 ~ "lost",
+      n_retained > 0 & n_lost == 0 ~ "retained",
+      n_lost > 0 & n_retained > 0  ~ "mixed"
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(muni_r_status)) 
+
+counts_by_area_muni_r_West <- municipality_r_class %>%
+  group_by(Traditional_dialect_area, muni_r_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from =muni_r_status, values_from = n, values_fill = 0)
+
+print(counts_by_area_muni_r_West)
+
+
+
+
+```
+
+
+```{r}
+#plotting the western data
+
+muni_counts_hom_West <- municipality_homophony_class %>%
+  count(Traditional_dialect_area, muni_status, name = "n") %>%
+  group_by(Traditional_dialect_area) %>%
+  mutate(
+    total_by_area = sum(n),
+    pct_within_area = n / total_by_area,             # proportion (0-1) for plotting
+    label = paste0(n, " (", percent(pct_within_area, accuracy = 1), ")")
+  ) %>%
+  ungroup()
+
+writexl::write_xlsx(muni_counts_hom_West, "muni_counts_hom_West.xlsx")
+
+muni_counts_hom_West <- muni_counts_hom_West %>%
+  mutate(
+    Traditional_dialect_area_eng = case_when(
+      grepl("^Nordnorsk$", Traditional_dialect_area) ~ "North Nw",
+      grepl("^Nordvestlandsk$", Traditional_dialect_area) ~ "Northwestern Nw",
+      grepl("^S.rlandsk$", Traditional_dialect_area) ~ "Southern Nw",     
+      grepl("^S.rlandsk/S.rvestlandsk$", Traditional_dialect_area) ~ "Southern/Southwestern Nw",
+      grepl("^S.rvestlandsk$", Traditional_dialect_area) ~ "Southwestern Nw"
+    )
+  )
+
+ggplot(muni_counts_hom_West, aes(x = Traditional_dialect_area_eng, y = pct_within_area, fill = muni_status)) +
+  geom_col(color = "black", width = 0.75) +
+  geom_text(aes(label = n),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(
+    values = c("homophonous" = "#0072B2", "non-homophonous" = "#BDBDBD", "mixed" = "#2F2F2F"),
+    labels = c(
+    "homophonous"     = "homophony",
+    "non-homophonous" = "no homophony",
+    "mixed"           = "mixed evidence"
+  )
+  ) +
+  labs(x = "Dialect area or subdivision (Western dialects)", y = "Percentage of municipalities",
+       fill = "Present-preterit homophony") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+
+
+```
+
+
+```{r}
+#homophony status for eastern dialects
+
+eastern_d <- HA_data %>%
+  filter(General_dialect_area == "Eastern")
+
+
+# i need to differentiate between vowel balance and overweight verbs
+#this one is for VB verbs
+locality_status_East_vb <- eastern_d %>%
+  arrange(Traditional_dialect_area, Municipality, Locality) %>%         
+  group_by(Traditional_dialect_area, Municipality, Locality) %>%
+  summarise(
+    r_status = first(na.omit(r_status)),
+    homophony_vb = first(na.omit(H_VB)),
+    .groups = "drop")
+
+municipality_homophony_class_vb_East <- locality_status_East_vb %>%
+  filter(!is.na(homophony_vb)) %>%
+  group_by(Municipality, Traditional_dialect_area) %>%
+  summarise(
+    n_total_localities = n(),
+    n_known = sum(homophony_vb %in% c("yes", "no", "yes/no")), 
+    n_yes = sum(homophony_vb == "yes" | homophony_vb == "yes/no", na.rm = TRUE),
+    n_no  = sum(homophony_vb == "no"  | homophony_vb == "yes/no", na.rm = TRUE),
+    muni_status = case_when(
+      n_known == 0               ~ NA_character_,
+      n_yes > 0 & n_no == 0      ~ "homophonous",
+      n_no > 0  & n_yes == 0     ~ "non-homophonous",
+      n_yes > 0 & n_no > 0       ~ "mixed"
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(muni_status)) 
+
+
+counts_by_area_municipality_homophony_class_vb_East <- municipality_homophony_class_vb_East %>%
+  group_by(Traditional_dialect_area, muni_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = muni_status, values_from = n, values_fill = 0)
+
+print(counts_by_area_municipality_homophony_class_vb_East)
+
+#now do the same for overweight verbs
+
+locality_status_East_ov <- eastern_d %>%
+  arrange(Traditional_dialect_area, Municipality, Locality) %>%         
+  group_by(Traditional_dialect_area, Municipality, Locality) %>%
+  summarise(
+    r_status = first(na.omit(r_status)),
+    homophony_ov = first(na.omit(H_general)),
+    .groups = "drop")
+
+municipality_homophony_class_ov_East <- locality_status_East_ov %>%
+  filter(!is.na(homophony_ov)) %>%
+  group_by(Municipality, Traditional_dialect_area) %>%
+  summarise(
+    n_total_localities = n(),
+    n_known = sum(homophony_ov %in% c("yes", "no", "yes/no")),   # yes, no, or yes/no count as known
+    n_yes = sum(homophony_ov == "yes" | homophony_ov == "yes/no", na.rm = TRUE),
+    n_no  = sum(homophony_ov == "no"  | homophony_ov == "yes/no", na.rm = TRUE),
+    muni_status = case_when(
+      n_known == 0               ~ NA_character_,
+      n_yes > 0 & n_no == 0      ~ "homophonous",
+      n_no > 0  & n_yes == 0     ~ "non-homophonous",
+      n_yes > 0 & n_no > 0       ~ "mixed"
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(muni_status)) 
+
+
+counts_by_area_municipality_homophony_class_ov_East <- municipality_homophony_class_ov_East %>%
+  group_by(Traditional_dialect_area, muni_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(names_from = muni_status, values_from = n, values_fill = 0)
+
+print(counts_by_area_municipality_homophony_class_ov_East)
+
+
+#creating a third panel which will show how homophony distributes over eastern dialects, across a-class and in only one of the categories, reusing data from above
+
+vb <- municipality_homophony_class_vb_East %>%
+  select(Municipality, Traditional_dialect_area, muni_status_vb = muni_status)
+
+ov <- municipality_homophony_class_ov_East %>%
+  select(Municipality, Traditional_dialect_area, muni_status_ov = muni_status)
+
+#joining vb and ov verbs, with all the data
+muni_hom_combined_all <- full_join(vb, ov, by = c("Municipality", "Traditional_dialect_area"))
+
+#i have chosen to stick to "secure" evidence, so only municipalities that have a status in both ov and vb verbs here
+muni_all <- full_join(vb, ov, by = c("Municipality", "Traditional_dialect_area")) %>%
+  filter(!is.na(muni_status_vb) & !is.na(muni_status_ov))
+
+muni_all <- muni_all %>%
+  mutate(
+    combined = case_when(
+      muni_status_vb == "mixed" | muni_status_ov == "mixed" ~ "mixed",
+      muni_status_vb == "homophonous" & muni_status_ov == "homophonous" ~ "across_a_class",
+      muni_status_ov == "homophonous" & muni_status_vb == "non-homophonous" ~ "overweight_only",
+      muni_status_vb == "homophonous" & muni_status_ov == "non-homophonous" ~ "VB_only",
+      muni_status_vb == "non-homophonous" & muni_status_ov == "non-homophonous" ~ "none",
+      TRUE ~ "other"
+    )
+  )
+
+muni_all %>%
+  count(Traditional_dialect_area, combined) %>%
+  group_by(Traditional_dialect_area) %>%
+  mutate(
+    area_total = sum(n),
+    prop       = n / area_total
+  ) %>%
+  ungroup()
+
+#download
+writexl::write_xlsx(muni_all, "muni_all.xlsx")
+
+#total overview
+counts <- muni_all %>% count(combined) %>% mutate(pct = 100 * n / sum(n))
+print(counts)
+
+
+#i am also interested in the loss of -r across these dialects
+
+locality_status_East <- eastern_d %>%
+  arrange(Traditional_dialect_area, Municipality, Locality) %>%         
+  group_by(Traditional_dialect_area, Municipality, Locality) %>%
+  summarise(
+    r_status = first(na.omit(r_status)),
+    homophony = first(na.omit(H_general)),
+    .groups = "drop")
+
+locality_status_East <- locality_status_East %>%
+  semi_join(
+    muni_all,
+    by = c("Municipality", "Traditional_dialect_area")
+  )
+
+municipality_r_class_East <- locality_status_East %>%
+  # keep only localities with a non-NA r_status
+  filter(!is.na(r_status)) %>%
+  group_by(Municipality, Traditional_dialect_area) %>%
+  summarise(
+    n_total_localities = n(),
+    # count localities that indicate lost (includes "lost" and "lost/retained")
+    n_lost = sum(r_status == "lost" | r_status == "lost/retained"),
+    # count localities that indicate retained (includes "retained" and "lost/retained")
+    n_retained = sum(r_status == "retained" | r_status == "lost/retained"),
+    muni_r_status = case_when(
+      n_lost > 0 & n_retained == 0 ~ "lost",
+      n_retained > 0 & n_lost == 0 ~ "retained",
+      n_lost > 0 & n_retained > 0  ~ "mixed"
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(muni_r_status)) 
+
+counts_by_area_muni_r_East <- municipality_r_class_East %>%
+  group_by(Traditional_dialect_area, muni_r_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from =muni_r_status, values_from = n, values_fill = 0)
+
+print(counts_by_area_muni_r_East)
+```
+
+
+```{r}
+#plotting eastern data
+
+muni_counts_overall_East <- muni_all %>%
+  group_by(Traditional_dialect_area, combined) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  complete(Traditional_dialect_area,
+           combined = levels(muni_all$combined),
+           fill = list(n = 0)) %>%
+  group_by(Traditional_dialect_area) %>%
+  mutate(
+    total_in_area = sum(n),
+    pct_within_area = ifelse(total_in_area > 0, n / total_in_area, 0)
+  ) %>%
+  ungroup()
+
+writexl::write_xlsx(muni_counts_overall, "muni_counts_overall.xlsx")
+
+ggplot(muni_counts_overall, aes(x = Traditional_dialect_area, y = pct_within_area, fill = combined)) +
+  geom_col(color = "black", width = 0.75) +
+  geom_text(aes(label = n),
+            position = position_stack(vjust = 0.5),
+            size = 3.5, color = "white") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_manual(
+    values = c("across_a_class" = "#0072B2", "VB_only" = "#BDBDBD",
+               "mixed" = "grey32", "none" = "black"),
+    labels = c(
+    "across_a_class"     = "homophony in all a-class verbs",
+    "VB_only" = "homophony in vowel balance verbs only",
+    "none" = "no homophony",
+    "mixed"           = "mixed evidence"
+  )
+  ) +
+  scale_x_discrete(
+    breaks = c("Austlandsk", "Austlandsk/Midlandsk", "Midlandsk", "Tr\u00F8ndsk"),
+    labels = c("East Nw", "East/Midland Nw", "Midland Nw", "Tr\u00F8ndelag Nw")
+  ) +
+  labs(x = "Dialect area (Eastern dialects)", y = "Percentage of municipalities",
+       fill = "Present-preterit homophony") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+
+
+```
+
