@@ -1,0 +1,958 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#for the NDS data in chap geo_lex_par
+```{r}
+
+library(dplyr)
+library(readr)
+library(forcats)
+library(ggplot2)
+library(stringr)
+library(scales)
+
+folder_path <- "datasets/NDS_dataset"
+
+
+a_class_data <- read.csv("a_class_dataset.csv", sep = ";", header = TRUE)
+e_class_data <- read.csv("e_class_dataset.csv", sep = ";", header = TRUE)
+
+
+#exclude any lexemes that have shift status other than a>a, a>e; e>e; e>a
+a_class_clean <- a_class_data %>%
+  filter(
+    SHIFT_status %in% c("a > a", "a > e"))
+
+e_class_clean <- e_class_data %>%
+  filter(
+    SHIFT_status %in% c("e > e", "e > a"))
+
+```
+
+```{r}
+#geographical patterns
+
+#first for the three broad regions
+#create region groupings
+
+
+a_class_clean <- a_class_clean %>%
+  mutate(
+    Major_region = case_when(
+      County_district %in% c("Oestfold", "Vestfold", "Aust_Telemark", "Vest_Telemark") ~ "Eastern",
+      County_district %in% c("Romsdal", "Nordmoere", "Soer_Troendelag_Austdalane", "Soer_Troendelag_Vestdalane", "Soer_Troendelag_Fosen")  ~ "Northern",
+      County_district %in% c("Vest_Agder", "Dalane_og_Jaeren", "Austre_Ryfylke", "Nordre_Ryfylke", "Sunnhordland", "Nordhordland", "Midhordland_Hardanger_Voss", "Sogn_og_Fjordane", "Sunnmoere") ~ "Western",
+      TRUE                                  ~ NA_character_
+    )
+  )
+
+e_class_clean <- e_class_clean %>%
+  mutate(
+    Major_region = case_when(
+      County_district %in% c("Oestfold", "Vestfold", "Aust_Telemark", "Vest_Telemark") ~ "Eastern",
+      County_district %in% c("Romsdal", "Nordmoere", "Soer_Troendelag_Austdalane", "Soer_Troendelag_Vestdalane", "Soer_Troendelag_Fosen")  ~ "Northern",
+      County_district %in% c("Vest_Agder", "Dalane_og_Jaeren", "Austre_Ryfylke", "Nordre_Ryfylke", "Sunnhordland", "Nordhordland", "Midhordland_Hardanger_Voss", "Sogn_og_Fjordane", "Sunnmoere") ~ "Western",
+      TRUE                                  ~ NA_character_
+    )
+  )
+
+#shift status within a-class by major region
+
+region_shift_overview_a <- a_class_clean %>%
+  group_by(Major_region, SHIFT_status) %>%
+  summarise(
+    n_obs = n(),            
+    .groups = "drop"
+  ) %>%
+  group_by(Major_region) %>%
+  mutate(
+    total_obs   = sum(n_obs),
+    prop_obs    = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+#shift status within e-class by major region
+
+region_shift_overview_e <- e_class_clean %>%
+  group_by(Major_region, SHIFT_status) %>%
+  summarise(
+    n_obs = n(),            
+    .groups = "drop"
+  ) %>%
+  group_by(Major_region) %>%
+  mutate(
+    total_obs   = sum(n_obs),
+    prop_obs    = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+# now for count/district by region
+
+#create the groupings -- Sør Trøndelag and Ryfylke need to be joined from smaller areas
+
+a_class_clean <- a_class_clean %>%
+  mutate(
+    County_district = case_when(
+      County_district %in% c("Austre_Ryfylke", "Nordre_Ryfylke") ~ "Ryfylke",
+      County_district %in% c("Soer_Troendelag_Austdalane", "Soer_Troendelag_Vestdalane", "Soer_Troendelag_Fosen") ~ "Soer_Troendelag",
+      TRUE                                       ~ County_district
+    )
+  )
+
+e_class_clean <- e_class_clean %>%
+  mutate(
+    County_district = case_when(
+      County_district %in% c("Austre_Ryfylke", "Nordre_Ryfylke") ~ "Ryfylke",
+      County_district %in% c("Soer_Troendelag_Austdalane", "Soer_Troendelag_Vestdalane", "Soer_Troendelag_Fosen") ~ "Soer_Troendelag",
+      TRUE                                       ~ County_district
+    )
+  )
+
+
+#a-class
+county_shift_overview_a <- a_class_clean %>%
+  group_by(Major_region, County_district, SHIFT_status) %>%
+  summarise(
+    n_obs = n(), 
+    .groups = "drop"
+  ) %>%
+  group_by(Major_region, County_district) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+#e-class
+
+county_shift_overview_e <- e_class_clean %>%
+  group_by(Major_region, County_district, SHIFT_status) %>%
+  summarise(
+    n_obs = n(), 
+    .groups = "drop"
+  ) %>%
+  group_by(Major_region, County_district) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+#by dialect area
+#a-class
+
+dialect_shift_overview_a <- a_class_clean %>%
+  group_by(Dialect_area, SHIFT_status) %>%
+  summarise(
+    n_obs = n(), 
+    .groups = "drop"
+  ) %>%
+  group_by(Dialect_area) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+#e-class
+
+dialect_shift_overview_e <- e_class_clean %>%
+  group_by(Dialect_area, SHIFT_status) %>%
+  summarise(
+    n_obs = n(), 
+    .groups = "drop"
+  ) %>%
+  group_by(Dialect_area) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+```
+
+```{r}
+#visualization
+
+#By Venås region, a-class verbs
+
+ggplot(region_shift_overview_a,
+       aes(x = Major_region, y = prop_obs, fill = SHIFT_status)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size = 4) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("a > a" = "#BDBDBD", "a > e" = "#2F2F2F")) +
+  labs(
+    x = "Major region",
+    y = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#By Venås region, e-class verbs
+
+ggplot(region_shift_overview_e,
+       aes(x = Major_region, y = prop_obs, fill = SHIFT_status)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size = 4) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("e > e" = "#BDBDBD", "e > a" = "#2F2F2F")) +
+  labs(
+    x = "Major region",
+    y = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#per county/landscape
+#order and rename dialects
+county_shift_overview_a <- county_shift_overview_a %>%
+  mutate(
+    County_district = factor(
+      County_district,
+      levels = c(
+        "Oestfold",
+        "Vestfold",
+        "Aust_Telemark",
+        "Vest_Telemark",
+        "Vest_Agder",
+        "Dalane_og_Jaeren",
+        "Ryfylke",
+        "Sunnhordland",
+        "Nordhordland",
+        "Midhordland_Hardanger_Voss",
+        "Sogn_og_Fjordane",
+        "Sunnmoere",
+        "Romsdal",
+        "Nordmoere",
+        "Soer_Troendelag"
+      )
+    )
+  )
+
+
+ggplot(county_shift_overview_a,
+       aes(x = County_district,
+           y = prop_obs,
+           fill = SHIFT_status)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size = 3) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("a > a" = "#BDBDBD", "a > e" = "#2F2F2F")) +
+  facet_wrap(~ Major_region, scales = "free_x") +
+  scale_x_discrete(
+    labels = c(
+        "Oestfold" = "\u00d8stfold",
+        "Vestfold" = "Vestfold",
+        "Aust_Telemark" = "Aust-Telemark",
+        "Vest_Telemark" = "Vest-Telemark",
+        "Vest_Agder" = "Vest-Agder",
+        "Dalane_og_Jaeren" = "Dalane and J\u00e6ren",
+        "Ryfylke" = "Ryfylke",
+        "Sunnhordland" = "Sunnhordland",
+        "Nordhordland" = "Nordhordland",
+        "Midhordland_Hardanger_Voss" = "Midhordland, Hardanger, Voss",
+        "Sogn_og_Fjordane" = "Sogn and Fjordane",
+        "Sunnmoere" = "Sunnm\u00f8re",
+        "Romsdal" = "Romsdal",
+        "Nordmoere" = "Nordm\u00f8re",
+        "Soer_Troendelag" = "S\u00f8r-Tr\u00f8ndelag")
+  ) +
+  labs(
+    x = "County / district",
+    y = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+#for e class verbs
+
+county_shift_overview_e <- county_shift_overview_e %>%
+  mutate(
+    County_district = factor(
+      County_district,
+      levels = c(
+        "Oestfold",
+        "Vestfold",
+        "Aust_Telemark",
+        "Vest_Telemark",
+        "Vest_Agder",
+        "Dalane_og_Jaeren",
+        "Ryfylke",
+        "Sunnhordland",
+        "Nordhordland",
+        "Midhordland_Hardanger_Voss",
+        "Sogn_og_Fjordane",
+        "Sunnmoere",
+        "Romsdal",
+        "Nordmoere",
+        "Soer_Troendelag"
+      )
+    )
+  )
+
+ggplot(county_shift_overview_e,
+       aes(x = County_district,
+           y = prop_obs,
+           fill = SHIFT_status)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size = 3) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("e > e" = "#BDBDBD", "e > a" = "#2F2F2F")) +
+  facet_wrap(~ Major_region, scales = "free_x") +
+  scale_x_discrete(
+    labels = c(
+        "Oestfold" = "\u00d8stfold",
+        "Vestfold" = "Vestfold",
+        "Aust_Telemark" = "Aust-Telemark",
+        "Vest_Telemark" = "Vest-Telemark",
+        "Vest_Agder" = "Vest-Agder",
+        "Dalane_og_Jaeren" = "Dalane and J\u00e6ren",
+        "Ryfylke" = "Ryfylke",
+        "Sunnhordland" = "Sunnhordland",
+        "Nordhordland" = "Nordhordland",
+        "Midhordland_Hardanger_Voss" = "Midhordland, Hardanger, Voss",
+        "Sogn_og_Fjordane" = "Sogn and Fjordane",
+        "Sunnmoere" = "Sunnm\u00f8re",
+        "Romsdal" = "Romsdal",
+        "Nordmoere" = "Nordm\u00f8re",
+        "Soer_Troendelag" = "S\u00f8r-Tr\u00f8ndelag")
+  ) +
+  labs(
+    x = "County / district",
+    y = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+#dialect overview
+
+# fix the order
+
+dialect_shift_overview_a <- dialect_shift_overview_a %>%
+  mutate(
+    Dialect_area = factor(
+      Dialect_area,
+      levels = c(
+        "Austlandsk",
+        "Midlandsk",
+        "Austlandsk/Midlandsk",
+        "Troendsk",
+        "Southern",
+        "Southwestern",
+        "Southern/Southwestern",
+        "Northwestern"
+      )
+    )
+  )
+
+ggplot(dialect_shift_overview_a,
+       aes(x = Dialect_area,
+           y = prop_obs,
+           fill = SHIFT_status)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size = 3) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("a > a" = "#BDBDBD", "a > e" = "#2F2F2F")) +
+  scale_x_discrete(
+    labels = c(
+        "Austlandsk" = "East Nw",
+        "Midlandsk" = "Midland Nw",
+        "Austlandsk/Midlandsk" = "East/Midland Nw",
+        "Troendsk" = "Tr\u00f8ndelag Nw",
+        "Southern" = "Southern Nw",
+        "Southwestern" = "Southwestern Nw",
+        "Southern/Southwestern" = "Southern/Southwestern Nw",
+        "Northwestern" = "Northwestern Nw")
+  ) +
+  labs(
+    x = "Dialect area",
+    y = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+dialect_shift_overview_e <- dialect_shift_overview_e %>%
+  mutate(
+    Dialect_area = factor(
+      Dialect_area,
+      levels = c(
+        "Austlandsk",
+        "Midlandsk",
+        "Austlandsk/Midlandsk",
+        "Troendsk",
+        "Southern",
+        "Southwestern",
+        "Southern/Southwestern",
+        "Northwestern"
+      )
+    )
+  )
+
+ggplot(dialect_shift_overview_e,
+       aes(x = Dialect_area,
+           y = prop_obs,
+           fill = SHIFT_status)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size = 3) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("e > e" = "#BDBDBD", "e > a" = "#2F2F2F")) +
+  scale_x_discrete(
+    labels = c(
+        "Austlandsk" = "East Nw",
+        "Midlandsk" = "Midland Nw",
+        "Austlandsk/Midlandsk" = "East/Midland Nw",
+        "Troendsk" = "Tr\u00f8ndelag Nw",
+        "Southern" = "Southern Nw",
+        "Southwestern" = "Southwestern Nw",
+        "Southern/Southwestern" = "Southern/Southwestern Nw",
+        "Northwestern" = "Northwestern Nw")
+  ) +
+  labs(
+    x = "Dialect area",
+    y = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+
+```{r}
+#lexical patterns
+
+#make a lexeme status overview
+
+#a-class
+lexeme_patterns_global_a <- a_class_clean %>%
+  group_by(Lexeme, SHIFT_status) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop_last"
+  ) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+
+#e-class
+lexeme_patterns_global_e <- e_class_clean %>%
+  group_by(Lexeme, SHIFT_status) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(Lexeme) %>%
+  mutate(
+    total_obs      = sum(n_obs),
+    prop_of_lexeme = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+#visualization lexical patterns
+
+#
+global_a_per_lexeme <- a_class_clean %>%
+  group_by(Lexeme, SHIFT_status) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop_last"
+  ) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Lexeme_label = dplyr::case_when(
+      Lexeme == "kasta" ~ "kasta 'throw'",
+      Lexeme == "kosta" ~ "kosta 'cost'",
+      Lexeme == "tapa"  ~ "tapa 'lose'",
+      Lexeme == "lika"  ~ "lika 'like'",
+      Lexeme == "lova"  ~ "lova 'promise'",
+      Lexeme == "baka"  ~ "baka 'bake'",
+      Lexeme == "maala"  ~ "m\u00e5la 'paint'",
+      Lexeme == "bora"  ~ "bora 'drill'",
+      Lexeme == "laga"  ~ "laga 'make'",
+      Lexeme == "kalla" ~ "kalla 'call, name'",
+      Lexeme == "takka" ~ "takka 'thank'",
+      Lexeme == "fiska" ~ "fiska 'fish'"
+    )
+  )
+
+
+#orders lexeme by shift proportion
+global_a_per_lexeme <- global_a_per_lexeme %>%
+  group_by(Lexeme_label) %>%
+  mutate(
+    prop_shift = ifelse(
+      any(SHIFT_status == "a > e"),
+      prop_obs[SHIFT_status == "a > e"],
+      0
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Lexeme_label = reorder(Lexeme_label, prop_shift)
+  )
+
+
+ggplot(global_a_per_lexeme,
+       aes(x = Lexeme_label,
+           y = prop_obs,
+           fill = SHIFT_status)) +
+  geom_col(colour = "black", width = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            size = 4, colour = "white") +
+  scale_fill_manual(values = c("a > a" = "#BDBDBD", "a > e" = "#2F2F2F")) +
+  labs(
+    x   = "Lexeme",
+    y   = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14)
+
+
+#now for e-verbs
+
+global_e_per_lexeme <- e_class_clean %>%
+  group_by(Lexeme, SHIFT_status) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop_last"
+  ) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Lexeme_label = dplyr::case_when(
+      Lexeme == "kjenna" ~ "kjenna 'know, feel'",
+      Lexeme == "nemna" ~ "nemna 'name'",
+      Lexeme == "hoeyra"  ~ "h\u00f8yra 'hear, listen'",
+      Lexeme == "moeta"  ~ "m\u00f8ta 'meet'",
+      Lexeme == "kjoepa"  ~ "kj\u00f8pa 'buy'",
+      Lexeme == "gloeyma"  ~ "gl\u00f8yma 'forget'",
+      Lexeme == "fylgja"  ~ "fylgja 'follow'",
+      Lexeme == "senda"  ~ "senda 'send'",
+      Lexeme == "boeya"  ~ "b\u00f8ya 'bend'",
+      Lexeme == "bloeyta" ~ "bl\u00f8yta 'wet'",
+      Lexeme == "ploeya" ~ "pl\u00f8ya 'plough'",
+      Lexeme == "noeya" ~ "n\u00f8ya 'be content, settle with'",
+      Lexeme == "toeya" ~ "t\u00f8ya 'stretch'",
+      Lexeme == "syrgja" ~ "syrgja 'sorrow, mourn'"
+    )
+  )
+
+
+global_e_per_lexeme <- global_e_per_lexeme %>%
+  group_by(Lexeme_label) %>%
+  mutate(
+    prop_shift = ifelse(
+      any(SHIFT_status == "e > a"),
+      prop_obs[SHIFT_status == "e > a"],
+      0
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    Lexeme_label = reorder(Lexeme_label, prop_shift)
+  )
+
+global_e_per_lexeme %>%
+  distinct(Lexeme_label, prop_shift) %>%
+  arrange(desc(prop_shift))
+
+ggplot(global_e_per_lexeme,
+       aes(x = Lexeme_label,
+           y = prop_obs,
+           fill = SHIFT_status)) +
+  geom_col(colour = "black", width = 0.7) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            size = 4, colour = "white") +
+  scale_fill_manual(values = c("e > e" = "#BDBDBD", "e > a" = "#2F2F2F")) +
+  labs(
+    x   = "Lexeme",
+    y   = "Percentage of paradigms",
+    fill = "Shift status"
+  ) +
+  theme_classic(base_size = 14)
+```
+
+
+
+```{r}
+#here starts the paradigmatic analysis
+#cell-level
+
+#a-class
+#first, exclude paradigms that have nid or a/nid values
+
+#identify such paradigms
+paradigms_exclude <- a_class_data %>%
+  group_by(Dialect_point, Lexeme) %>%
+  filter(any(str_detect(MN_class, "nid"))) %>%
+  ungroup() %>%
+  distinct(Dialect_point, Lexeme)
+
+
+#keep the ones that have a relevant shift, and exclude the ones with nid
+a_no_nid_paradigms <- a_class_data %>%
+  anti_join(paradigms_exclude, by = c("Dialect_point", "Lexeme"))
+
+paradigms_with_relevant_shift <- a_no_nid_paradigms %>%
+  filter(Cell == "present",
+         SHIFT_status %in% c("a > a", "a > e")) %>%
+  distinct(Dialect_point, Lexeme)
+
+a_cells_paradigm <- a_no_nid_paradigms %>%
+  semi_join(paradigms_with_relevant_shift, by = c("Dialect_point", "Lexeme")) %>%
+  filter(MN_class %in% c("a", "e", "doubl a/e")) %>%
+  mutate(
+    MN_shift = case_when(
+      MN_class == "a" ~ "a > a",
+      MN_class %in% c("e", "doubl a/e") ~ "a > e"
+    )
+  )
+
+cell_overview_a <- a_cells_paradigm %>%
+  group_by(Cell, MN_shift) %>%
+  summarise(
+    n_obs   = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(Cell) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+
+#now the same for the e-class data
+#identify paradigms to exclude
+paradigms_exclude_e <- e_class_data %>%
+  group_by(Dialect_point, Lexeme) %>%
+  filter(any(str_detect(MN.class, "nid"))) %>%   # if ANY row has nid
+  ungroup() %>%
+  distinct(Dialect_point, Lexeme)
+
+
+#now only keep the ones that have a relevant shift, and exclude the ones with nid
+e_no_nid_paradigms <- e_class_data %>%
+  anti_join(paradigms_exclude_e, by = c("Dialect_point", "Lexeme"))
+
+paradigms_with_relevant_shift_e <- e_no_nid_paradigms %>%
+  filter(Cell == "present",
+         SHIFT_status %in% c("e > e", "e > a")) %>%
+  distinct(Dialect_point, Lexeme)
+
+e_cells_paradigm <- e_no_nid_paradigms %>%
+  semi_join(paradigms_with_relevant_shift_e, by = c("Dialect_point", "Lexeme")) %>%
+  filter(MN.class %in% c("a", "e", "doubl a/e")) %>%
+  mutate(
+    MN_shift = case_when(
+      MN.class == "e" ~ "e > e",
+      MN.class %in% c("a", "doubl a/e") ~ "e > a"
+    )
+  )
+
+cell_overview_e <- e_cells_paradigm %>%
+  group_by(Cell, MN_shift) %>%
+  summarise(
+    n_obs   = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(Cell) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+```
+
+
+```{r}
+#visualization for cell-level analysis
+
+#a-class
+
+ggplot(cell_overview_a,
+       aes(x = Cell, y = prop_obs, fill = MN_shift)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size   = 4) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(
+    values = c("a > a" = "#BDBDBD", "a > e" = "#2F2F2F"),
+    name   = "Shift status"
+  ) +
+  labs(
+    x = "Paradigm cell",
+    y = "Percentage of forms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+#e-class
+
+ggplot(cell_overview_e,
+       aes(x = Cell, y = prop_obs, fill = MN_shift)) +
+  geom_col(position = "fill", colour = "black", width = 0.7) +
+  geom_text(aes(label = n_obs),
+            position = position_stack(vjust = 0.5),
+            colour = "white",
+            size   = 4) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(
+    values = c("e > e" = "#BDBDBD", "e > a" = "#2F2F2F"),
+    name   = "Shift status"
+  ) +
+  labs(
+    x = "Paradigm cell",
+    y = "Percentage of forms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+
+```{r}
+#paradigmatic configurations
+
+#first add only the relevant types (only ones that have a, e or mixed in Class_label)
+
+#a-class
+conf_broad_a <- a_class_clean %>%
+  filter(
+    Class_label %in% c("a", "e", "mixed")
+  )
+
+overview_conf_broad_a <- conf_broad_a %>%
+  group_by(Class_label) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop_last"
+  ) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+overview_mixed_confs_a <- conf_broad_a %>%
+  filter(
+    Class_label %in% c("mixed")
+  ) %>%
+    group_by(Helper.column) %>%
+    summarise(
+      n_obs = n(),
+      .groups = "drop_last"
+    ) %>%
+    mutate(
+      total_obs = sum(n_obs),
+      prop_obs  = n_obs / total_obs
+    ) %>%
+    ungroup() %>%
+    arrange(desc(prop_obs))
+
+#e-class
+conf_broad_e <- e_class_clean %>%
+  filter(
+    Class_label %in% c("a", "e", "mixed")
+  )
+
+overview_conf_broad_e <- conf_broad_e %>%
+  group_by(Class_label) %>%
+  summarise(
+    n_obs = n(),
+    .groups = "drop_last"
+  ) %>%
+  mutate(
+    total_obs = sum(n_obs),
+    prop_obs  = n_obs / total_obs
+  ) %>%
+  ungroup()
+
+overview_mixed_confs_e <- conf_broad_e %>%
+  filter(
+    Class_label %in% c("mixed")
+  ) %>%
+    group_by(Helper.column) %>%
+    summarise(
+      n_obs = n(),
+      .groups = "drop_last"
+    ) %>%
+    mutate(
+      total_obs = sum(n_obs),
+      prop_obs  = n_obs / total_obs
+    ) %>%
+    ungroup() %>%
+    arrange(desc(prop_obs))
+
+```
+
+
+```{r}
+#visualizations of paradigmatic configurations for a-class
+
+#a-class
+ggplot(overview_mixed_confs_a,
+       aes(x = reorder(Helper.column, -prop_obs),
+           y = prop_obs)) +
+  geom_col(fill = "#BDBDBD", colour = "black", linewidth = 0.4, width = 0.6) +
+  geom_text(aes(label = n_obs),
+            vjust = -0.3, colour = "black", size = 3.5) +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    x = "Paradigmatic configuration",
+    y = "Percentage of paradigms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)
+  )
+
+
+ggplot(overview_conf_broad_a,
+       aes(x = reorder(Class_label, -prop_obs),
+           y = prop_obs)) +
+  geom_col(fill = "#BDBDBD", colour = "black", linewidth = 0.4, width = 0.6) +
+  geom_text(aes(label = n_obs),
+            vjust = -0.3, colour = "black", size = 3.5) +
+  scale_x_discrete(
+    labels = c(
+      "a" = "\"pure\" a",
+      "e" = "\"pure\" e",
+      "mixed" = "mixed"
+    )
+  ) +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    x = "Paradigm type",
+    y = "Percentage of paradigms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)
+  )
+
+
+#e-class
+
+ggplot(overview_mixed_confs_e,
+       aes(x = reorder(Helper.column, -prop_obs),
+           y = prop_obs)) +
+  geom_col(fill = "#BDBDBD", colour = "black", linewidth = 0.4, width = 0.6) +
+  geom_text(aes(label = n_obs),
+            vjust = -0.3, colour = "black", size = 3.5) +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    x = "Paradigmatic configuration",
+    y = "Percentage of paradigms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)
+  )
+
+
+ggplot(overview_conf_broad_e,
+       aes(x = reorder(Class_label, -prop_obs),
+           y = prop_obs)) +
+  geom_col(fill = "#BDBDBD", colour = "black", linewidth = 0.4, width = 0.6) +
+  geom_text(aes(label = n_obs),
+            vjust = -0.3, colour = "black", size = 3.5) +
+  scale_x_discrete(
+    labels = c(
+      "a" = "\"pure\" a",
+      "e" = "\"pure\" e",
+      "mixed" = "mixed"
+    )
+  ) +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 1),
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  labs(
+    x = "Paradigm type",
+    y = "Percentage of paradigms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 12)
+  )
+
+```
+
