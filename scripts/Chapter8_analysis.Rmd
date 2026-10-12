@@ -1,0 +1,1321 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+##i need to add in hypothethical datasets for each dialect, and I also need to replace inf with non
+#and include infinitive into entropy calculation
+
+
+```{r}
+#this chunk creates the datasets from which complexity is measured, it takes the data and returns rows = classes (distinct exponent combinations) and lexeme counts for each class
+#these are the functions used across the dialect datasets
+#starting with a "full" data, including all small classes
+
+library(dplyr)
+library(tidyr)
+library(rlang)
+library(ggplot2)
+
+#for the full datasets based on MN_class data
+combine_lexeme_values_full <- function(data) {
+  data <- data %>%
+    mutate(
+      MN_class = ifelse(Cell == "inf", "non", MN_class)
+    )
+  # Combine lexeme values and summarize
+  combined_values_full <- data %>%
+    group_by(Lexeme) %>%
+    summarise(
+      infinitive = first(MN_class[Cell == "inf"]),
+      present    = first(MN_class[Cell == "pres"]),
+      preterite  = first(MN_class[Cell == "pret"]),
+      supine     = first(MN_class[Cell == "sup"]),
+      .groups = 'drop'  # Drop grouping after summarizing
+    )
+  
+   # One row per class, with lexeme_count and class_weight = 1
+   total_lexeme_counts_full <- combined_values_full %>%
+    group_by(infinitive, present, preterite, supine) %>%
+    summarise(
+      lexeme_count = n(),      # number of lexemes with this pattern
+      class_weight = 1,        # one class per row
+      .groups      = "drop"
+    )
+  
+  total_lexeme_counts_full
+}
+
+#for the hypothetical datasets
+
+combine_lexeme_values_hist_status <- function(data) {
+  data <- data %>%
+    mutate(
+      Hist_status = ifelse(Cell == "inf", "non", Hist_status),
+    )
+  
+  combined_values_hist_status <- data %>%
+    group_by(Lexeme) %>%
+    summarise(
+      infinitive = first(Hist_status[Cell == "inf"]),
+      present    = first(Hist_status[Cell == "pres"]),
+      preterite  = first(Hist_status[Cell == "pret"]),
+      supine     = first(Hist_status[Cell == "sup"]),
+      .groups = 'drop'
+    )
+
+  # One row per pattern (class), with lexeme_count and class_weight = 1
+  total_lexeme_counts_hist_status <- combined_values_hist_status %>%
+    group_by(infinitive, present, preterite, supine) %>%
+    summarise(
+      lexeme_count = n(),      # number of lexemes with this pattern
+      class_weight = 1,        # one class per pattern row
+      .groups      = "drop"
+    )
+  
+  total_lexeme_counts_hist_status
+}
+```
+
+
+```{r}
+#this is the first entropy measurement. This reflects "full" competence, the knowledge of which cells for which classes/lexemes are overabundant. It takes overabundant exponents "a/e" as exponents in their own right
+
+# General function to calculate conditional entropy for any two paradigm members
+calculate_conditional_entropy <- function(data,
+                                          condition_col, #the cell from which we are "guessing"
+                                          target_col, #the cell to which we are guessing
+                                          weighted = FALSE) {
+  
+  condition_str <- as.character(condition_col)
+  target_str    <- as.character(target_col)
+  
+  # Choose which weight to use:
+  # - weighted = FALSE -> class_weight  (class-based)
+  # - weighted = TRUE  -> lexeme_count  (lexeme-based)
+  weight_col <- if (weighted) "lexeme_count" else "class_weight"
+  
+  #figure out the total number of rows(=classes) or lexemes within the dataframe
+  total_mass <- sum(data[[weight_col]])
+  
+  # This will store H(target | condition)
+  conditional_entropy_total <- 0
+  
+  # We want to get all distinct condition values (e.g., a, a/e and e within present)
+  condition_values <- unique(data[[condition_str]])
+  
+  #now we want to iterate over them
+  for (condition_value in condition_values) {
+    rows_with_condition <- data[data[[condition_str]] == condition_value, ]
+    if (nrow(rows_with_condition) == 0) next
+    
+    # 1b. compute P(condition = condition_value)
+    mass_for_condition <- sum(rows_with_condition[[weight_col]])
+    p_condition <- mass_for_condition / total_mass
+    if (p_condition == 0) next
+    
+    # 1c. compute distribution of target values given this condition value
+    target_mass_by_value <- tapply(
+      rows_with_condition[[weight_col]],
+      rows_with_condition[[target_str]],
+      sum
+    )
+    
+    target_mass_by_value <- target_mass_by_value[target_mass_by_value > 0]
+    if (length(target_mass_by_value) == 0) next
+    
+    # P(target = value | condition = condition_value)
+    target_probabilities <- as.numeric(target_mass_by_value) /
+                            sum(target_mass_by_value)
+    
+    # 1d. entropy for this condition value: H(target | condition = value)
+    entropy_given_condition <- -sum(
+      target_probabilities * log2(target_probabilities)
+    )
+    
+    
+    # 1e. add contribution to the total entropy: P(condition) * H(target | condition)
+    conditional_entropy_total <- conditional_entropy_total +
+      p_condition * entropy_given_condition
+  }
+  
+  
+  # STEP 2: H(target | condition)
+  return(conditional_entropy_total)
+}
+
+
+# Function to calculate average conditional entropies for cell combinations, takes the function above
+average_conditional_entropy <- function(data) {
+  
+  cells <- c("infinitive", "present", "preterite", "supine")
+  
+  # All ordered pairs (condition, target), condition != target
+  pairs <- expand.grid(
+    condition = cells,
+    target    = cells,
+    stringsAsFactors = FALSE
+  )
+  pairs <- subset(pairs, condition != target)
+  
+  # For each pair, compute H(target | condition), unweighted and weighted
+  H_unw <- mapply(function(cond, targ) {
+    calculate_conditional_entropy(
+      data          = data,
+      condition_col = cond,
+      target_col    = targ,
+      weighted      = FALSE
+    )
+  }, cond = pairs$condition, targ = pairs$target)
+  
+  H_w <- mapply(function(cond, targ) {
+    calculate_conditional_entropy(
+      data          = data,
+      condition_col = cond,
+      target_col    = targ,
+      weighted      = TRUE
+    )
+  }, cond = pairs$condition, targ = pairs$target)
+  
+  list(
+    pairs    = pairs,
+    H_unw    = H_unw,
+    H_w      = H_w,
+    avg_unw  = mean(H_unw),
+    avg_w    = mean(H_w)
+  )
+}
+
+global_entropy <- function(data,
+                           cells = c("infinitive", "present", "preterite", "supine"),
+                           weighted = FALSE) {
+  # Use existing function
+  res <- average_conditional_entropy(data)
+  
+  if (weighted) {
+    res$avg_w   # lexeme-weighted mean entropy
+  } else {
+    res$avg_unw # class-based mean entropy
+  }
+}
+
+```
+
+```{r}
+#this chunk is to create datasets where overabundant cells are redistributed, so overabundance is not taken as an exponent in its own right
+#after splitting, the same entropy function as above can be applied further
+#this is based on Helens code
+
+
+split_overabundant_cells <- function(df) {
+
+  
+  weight_cols <- c("class_weight", "lexeme_count")
+  # only keep weight columns that are actually present
+  weight_cols <- intersect(weight_cols, names(df))
+  
+  # all other columns are potential places for "a/e" etc.
+  cols_to_check <- setdiff(colnames(df), weight_cols)
+  
+  changed <- TRUE
+  while (changed) {
+    changed <- FALSE
+    new_rows <- list()
+    new_row_index <- 1
+    
+    for (i in seq_len(nrow(df))) {
+      row <- df[i, , drop = FALSE]
+      split_done <- FALSE
+      
+      for (col in cols_to_check) {
+        val <- row[[col]]
+        
+        if (is.character(val) && grepl("/", val, fixed = TRUE)) {
+          parts   <- strsplit(val, "/", fixed = TRUE)[[1]]
+          n_parts <- length(parts)
+          
+          for (p in parts) {
+            new_row <- row
+            new_row[[col]] <- p
+            
+            # divide all weight columns equally
+            for (wcol in weight_cols) {
+              new_row[[wcol]] <- row[[wcol]] / n_parts
+            }
+            
+            new_rows[[new_row_index]] <- new_row
+            new_row_index <- new_row_index + 1
+          }
+          
+          split_done <- TRUE
+          changed <- TRUE
+          break
+        }
+      }
+      
+      if (!split_done) {
+        new_rows[[new_row_index]] <- row
+        new_row_index <- new_row_index + 1
+      }
+    }
+    
+    df <- do.call(rbind, new_rows)
+    rownames(df) <- NULL
+  }
+  
+  df
+}
+
+
+```
+
+
+```{r}
+
+#functions related to the probability of success/accuracy measure
+
+#first we want to expand any sources that are overabundant, so that guessing from an overabundant source a/e is like guessing from a and guessing from e. Both of these will get a weight of 0.5, so that the total weight of that row remains the same.
+
+#we want to keep overabundant targets, because those give us two correct guesses
+
+#same logic as above, but spliting only condition, not targets
+
+split_overabundant_condition <- function(df, condition_col) {
+  condition_str <- as.character(condition_col)
+  
+  # we assume df already has class_weight and lexeme_count
+  weight_cols <- intersect(c("class_weight", "lexeme_count"), names(df))
+  
+  if (!condition_str %in% names(df)) {
+    stop("Column '", condition_str, "' not found in data.")
+  }
+  
+  changed <- TRUE
+  while (changed) {
+    changed <- FALSE
+    new_rows <- list()
+    new_row_index <- 1
+    
+    for (i in seq_len(nrow(df))) {
+      row <- df[i, , drop = FALSE]
+      val <- row[[condition_str]]
+      
+      if (is.character(val) && grepl("/", val, fixed = TRUE)) {
+        parts   <- strsplit(val, "/", fixed = TRUE)[[1]]
+        n_parts <- length(parts)
+        
+        for (p in parts) {
+          new_row <- row
+          new_row[[condition_str]] <- p
+          
+          # divide all weight columns equally
+          for (wcol in weight_cols) {
+            new_row[[wcol]] <- row[[wcol]] / n_parts
+          }
+          
+          new_rows[[new_row_index]] <- new_row
+          new_row_index <- new_row_index + 1
+        }
+        
+        changed <- TRUE
+      } else {
+        new_rows[[new_row_index]] <- row
+        new_row_index <- new_row_index + 1
+      }
+    }
+    
+    df <- do.call(rbind, new_rows)
+    rownames(df) <- NULL
+  }
+  
+  df
+}
+
+#here we want to access the probabilities of targets within each source. So for example, if we have source a, and the possible targets are a, e and a/e, we want to know what the probabilities of those targets are. The overabundant targets a/e contribute 0.5 to each target (this is just for probabilities of targets) // the weight of the target also depends on the weight of the pattern (after splitting some patterns get .05)
+
+compute_probs_by_condition <- function(data_with_weight,
+                                       condition_str,
+                                       target_str) {
+  # data_with_weight must have column 'weight'
+  
+  data_with_weight %>%
+    dplyr::group_by(.data[[condition_str]]) %>%
+    dplyr::summarise(
+      w_a = sum(
+        dplyr::case_when(
+          .data[[target_str]] == "a"   ~ weight,
+          .data[[target_str]] == "a/e" ~ 0.5 * weight,
+          TRUE                         ~ 0
+        ),
+        na.rm = TRUE
+      ),
+      w_e = sum(
+        dplyr::case_when(
+          .data[[target_str]] == "e"   ~ weight,
+          .data[[target_str]] == "a/e" ~ 0.5 * weight,
+          TRUE                         ~ 0
+        ),
+        na.rm = TRUE
+      ),
+      w_non = sum(
+        dplyr::case_when(
+          .data[[target_str]] == "non" ~ weight,
+          TRUE                         ~ 0
+        ),
+        na.rm = TRUE
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      total_w_cat = w_a + w_e + w_non,
+      P_a   = ifelse(total_w_cat > 0, w_a   / total_w_cat, NA_real_),
+      P_e   = ifelse(total_w_cat > 0, w_e   / total_w_cat, NA_real_),
+      P_non = ifelse(total_w_cat > 0, w_non / total_w_cat, NA_real_)
+    )
+}
+
+
+#here we want to compute the probability of success. Here the overabundant targets such as a/e will have two correct targets, that is both a and e are correct. The other will only have one correct target. Probability of success is the probability of correct target or targets in the case of overabundance (so a sum). For overabundant lexemes, this will add up to 1, because both choices will be correct.
+attach_best_guess_accuracy <- function(data_with_weight,
+                                       probs_by_condition,
+                                       condition_str,
+                                       target_str) {
+  data_with_weight %>%
+    dplyr::left_join(
+      probs_by_condition,
+      by = setNames(condition_str, condition_str)
+    ) %>%
+    # choose best guess per row
+    dplyr::rowwise() %>%
+    dplyr::mutate(
+      best_guess = {
+        # vector of probs in a fixed order
+        probs <- c(P_a, P_e, P_non)
+        names(probs) <- c("a", "e", "non")
+        # index of max (first max if tie)
+        if (all(is.na(probs))) {
+          NA_character_
+        } else {
+          names(probs)[which.max(probs)]
+        }
+      }
+    ) %>%
+    dplyr::ungroup() %>%
+    # correctness of best guess for this row
+    dplyr::mutate(
+      correct = dplyr::case_when(
+        # simple targets
+        .data[[target_str]] == "a"   & best_guess == "a"   ~ 1,
+        .data[[target_str]] == "e"   & best_guess == "e"   ~ 1,
+        .data[[target_str]] == "non" & best_guess == "non" ~ 1,
+        # overabundant target: a/e → correct if best_guess is a or e
+        .data[[target_str]] == "a/e" & best_guess %in% c("a", "e") ~ 1,
+        TRUE ~ 0
+      )
+    )
+}
+
+#here we want to compute the accuracy for the entire source. So say, we have the source a, and now we know probability of success for each pattern within this source. We want now to weight those probabilities against the weight of that pattern and then sum them
+
+summarise_accuracy_by_condition <- function(data_with_correct,
+                                            condition_str) {
+  data_with_correct %>%
+    dplyr::group_by(.data[[condition_str]]) %>%
+    dplyr::mutate(
+      total_weight = sum(weight, na.rm = TRUE),
+      row_share    = dplyr::if_else(
+        total_weight > 0,
+        weight / total_weight,
+        NA_real_
+      )
+    ) %>%
+    dplyr::summarise(
+      total_weight = dplyr::first(total_weight),
+      accuracy = dplyr::if_else(
+        total_weight > 0,
+        sum(row_share * correct, na.rm = TRUE),
+        NA_real_
+      ),
+      .groups = "drop"
+    )
+}
+
+#finally we want to compute accuracy for one pair of cells. That is in most cases, one pair of cells will have more than one source, and for each of these sources we have computed accuracy. Now we want to compute the total accuracy, which will be weighting the accuracies of the the sources against the total weight and summing that up
+
+accuracy_one_pair <- function(data,
+                              condition_col,
+                              target_col,
+                              weighted = FALSE) {
+  condition_str <- as.character(condition_col)
+  target_str    <- as.character(target_col)
+  
+  # data must already have class_weight and lexeme_count
+  weight_col <- if (weighted) "lexeme_count" else "class_weight"
+  
+  data_local <- data
+  data_local$weight <- data_local[[weight_col]]
+  
+  # 1. expand overabundance only in the condition column
+  data_expanded <- split_overabundant_condition(
+    df            = data_local,
+    condition_col = condition_str
+  )
+  
+  # after splitting, reset generic weight from the chosen column
+  data_expanded$weight <- data_expanded[[weight_col]]
+  
+  # 2. get P_a, P_e, P_non per condition value
+  probs_by_condition <- compute_probs_by_condition(
+    data_with_weight = data_expanded,
+    condition_str    = condition_str,
+    target_str       = target_str
+  )
+  
+  # 3. attach best_guess and row-wise correctness
+  data_with_correct <- attach_best_guess_accuracy(
+    data_with_weight  = data_expanded,
+    probs_by_condition = probs_by_condition,
+    condition_str      = condition_str,
+    target_str         = target_str
+  )
+  
+  # 4. per-condition accuracy
+  accuracies_by_condition <- summarise_accuracy_by_condition(
+    data_with_correct,
+    condition_str
+  ) %>%
+    dplyr::rename(condition_value = !!condition_str) %>%
+    dplyr::mutate(
+      condition_col = condition_str,
+      target_col    = target_str
+    )
+  
+  # sanity check: accuracies in [0,1]
+  bad <- accuracies_by_condition %>%
+    dplyr::filter(!is.na(accuracy) & (accuracy < -1e-8 | accuracy > 1 + 1e-8))
+  if (nrow(bad) > 0) {
+    stop("Accuracy out of [0,1] for some condition values:\n",
+         paste(utils::capture.output(print(bad)), collapse = "\n"))
+  }
+  
+  # 5. pair-level accuracy (weighted average of per-condition accuracies)
+  by_condition2 <- accuracies_by_condition %>%
+    dplyr::rename(condition_weight = total_weight)
+  
+  pair_acc <- by_condition2 %>%
+    dplyr::mutate(
+      pair_total_weight = sum(condition_weight, na.rm = TRUE),
+      condition_share   = dplyr::if_else(
+        pair_total_weight > 0,
+        condition_weight / pair_total_weight,
+        NA_real_
+      )
+    ) %>%
+    dplyr::summarise(
+      pair_total_weight = dplyr::first(pair_total_weight),
+      accuracy = dplyr::if_else(
+        pair_total_weight > 0,
+        sum(condition_share * accuracy, na.rm = TRUE),
+        NA_real_
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      condition_col = condition_str,
+      target_col    = target_str
+    ) %>%
+    dplyr::select(condition_col, target_col, pair_total_weight, accuracy)
+  
+  # sanity check pair-level
+  bad_pair <- pair_acc %>%
+    dplyr::filter(!is.na(accuracy) & (accuracy < -1e-8 | accuracy > 1 + 1e-8))
+  if (nrow(bad_pair) > 0) {
+    stop("Pair accuracy out of [0,1] for pair:\n",
+         paste(utils::capture.output(print(bad_pair)), collapse = "\n"))
+  }
+  
+  list(
+    pair_accuracy          = pair_acc,
+    accuracies_by_condition = accuracies_by_condition
+  )
+}
+
+#accuracy of all pairs:
+accuracy_all_pairs <- function(data, cells, weighted = FALSE) {
+  pairs <- expand.grid(
+    condition_col = cells,
+    target_col    = cells,
+    stringsAsFactors = FALSE
+  ) %>%
+    dplyr::filter(condition_col != target_col)
+  
+  res_list <- purrr::map(
+    seq_len(nrow(pairs)),
+    ~ {
+      cc <- pairs$condition_col[.x]
+      tc <- pairs$target_col[.x]
+      accuracy_one_pair(data, cc, tc, weighted = weighted)
+    }
+  )
+  
+  pair_acc    <- purrr::map_dfr(res_list, "pair_accuracy")
+  by_condition <- purrr::map_dfr(res_list, "accuracies_by_condition")
+  
+  bad_pairs <- pair_acc %>%
+    dplyr::filter(!is.na(accuracy) & (accuracy < -1e-8 | accuracy > 1 + 1e-8))
+  if (nrow(bad_pairs) > 0) {
+    stop("Pair accuracy out of [0,1] for some pairs:\n",
+         paste(utils::capture.output(print(bad_pairs)), collapse = "\n"))
+  }
+  
+  list(
+    pair_accuracy          = pair_acc,
+    accuracies_by_condition = by_condition
+  )
+}
+
+global_accuracy <- function(pair_accuracy) {
+  pair_accuracy %>%
+    dplyr::summarise(
+      accuracy = mean(accuracy, na.rm = TRUE),
+      .groups  = "drop"
+    )
+}
+
+global_accuracy_best_guess <- function(data,
+                                       cells = c("infinitive", "present", "preterite", "supine"),
+                                       weighted = FALSE) {
+  # compute accuracy for all ordered cell pairs
+  res_pairs <- accuracy_all_pairs(
+    data     = data,
+    cells    = cells,
+    weighted = weighted
+  )
+  
+  # res_pairs$pair_accuracy must have a column 'accuracy'
+  # global_accuracy(...) returns a 1-row data frame with column 'accuracy'
+  global_accuracy(res_pairs$pair_accuracy)$accuracy
+}
+
+global_accuracy_both <- function(data,
+                                 cells = c("infinitive", "present", "preterite", "supine")) {
+  acc_unw <- global_accuracy_best_guess(data, cells, weighted = FALSE)
+  acc_w   <- global_accuracy_best_guess(data, cells, weighted = TRUE)
+  
+  list(
+    class_based  = acc_unw,
+    lexeme_based = acc_w
+  )
+}
+
+```
+
+
+
+#here I run functions separately for each dialect, because i wanted to be able to see numbers for each dialect. This is of course possible to simplify and have a function which takes each dataset one by one and returns the result
+
+```{r}
+#Strand
+
+
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Strand <- file.path(folder_path, "Strand.csv")
+
+Strand_data <- read.csv(
+  file_path_Strand,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Strand <- Strand_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Strand <- Strand_data %>%
+  filter(Lexeme %in% lexemes_Strand)
+
+
+#datasets
+df_full_Strand <- combine_lexeme_values_full(filtered_data_Strand)
+
+df_ov_Strand <- split_overabundant_cells(df_full_Strand)
+
+df_hyp_Strand <- combine_lexeme_values_hist_status(filtered_data_Strand)
+
+
+
+
+```
+
+
+
+
+```{r}
+#Sjernarøy
+folder_path <- "datasets/G_lists_dataset"
+
+
+file_path_Sjernaroey <- file.path(folder_path, "Sjernaroey.csv")
+
+Sjernaroey_data <- read.csv(
+  file_path_Sjernaroey,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Sjernaroey <- Sjernaroey_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Sjernaroey <- Sjernaroey_data %>%
+  filter(Lexeme %in% lexemes_Sjernaroey)
+
+#datasets
+df_full_Sjernaroey <- combine_lexeme_values_full(filtered_data_Sjernaroey)
+
+df_ov_Sjernaroey <- split_overabundant_cells(df_full_Sjernaroey)
+
+df_hyp_Sjernaroey <- combine_lexeme_values_hist_status(filtered_data_Sjernaroey)
+
+
+
+```
+
+
+
+```{r}
+#Avaldsnes
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Avaldsnes <- file.path(folder_path, "Avaldsnes.csv")
+
+Avaldsnes_data <- read.csv(
+  file_path_Avaldsnes,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Avaldsnes <- Avaldsnes_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Avaldsnes <- Avaldsnes_data %>%
+  filter(Lexeme %in% lexemes_Avaldsnes)
+
+#datasets
+df_full_Avaldsnes <- combine_lexeme_values_full(filtered_data_Avaldsnes)
+
+df_ov_Avaldsnes <- split_overabundant_cells(df_full_Avaldsnes)
+
+df_hyp_Avaldsnes <- combine_lexeme_values_hist_status(filtered_data_Avaldsnes)
+
+```
+
+
+
+```{r}
+#Fitjar
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Fitjar <- file.path(folder_path, "Fitjar.csv")
+
+Fitjar_data <- read.csv(
+  file_path_Fitjar,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Fitjar <- Fitjar_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Fitjar <- Fitjar_data %>%
+  filter(Lexeme %in% lexemes_Fitjar)
+
+
+#datasets
+df_full_Fitjar <- combine_lexeme_values_full(filtered_data_Fitjar)
+
+df_ov_Fitjar <- split_overabundant_cells(df_full_Fitjar)
+
+df_hyp_Fitjar <- combine_lexeme_values_hist_status(filtered_data_Fitjar)
+```
+
+
+```{r}
+#Herdla
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Herdla <- file.path(folder_path, "Herdla.csv")
+
+Herdla_data <- read.csv(
+  file_path_Herdla,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Herdla <- Herdla_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Herdla <- Herdla_data %>%
+  filter(Lexeme %in% lexemes_Herdla)
+
+
+#datasets
+df_full_Herdla <- combine_lexeme_values_full(filtered_data_Herdla)
+
+df_ov_Herdla <- split_overabundant_cells(df_full_Herdla)
+
+df_hyp_Herdla <- combine_lexeme_values_hist_status(filtered_data_Herdla)
+```
+
+
+```{r}
+#Meland
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Meland <- file.path(folder_path, "Meland.csv")
+
+Meland_data <- read.csv(
+  file_path_Meland,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Meland <- Meland_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Meland <- Meland_data %>%
+  filter(Lexeme %in% lexemes_Meland)
+
+
+#datasets
+df_full_Meland <- combine_lexeme_values_full(filtered_data_Meland)
+
+df_ov_Meland <- split_overabundant_cells(df_full_Meland)
+
+df_hyp_Meland <- combine_lexeme_values_hist_status(filtered_data_Meland)
+```
+
+
+```{r}
+#Suldal
+
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Suldal <- file.path(folder_path, "Suldal.csv")
+
+Suldal_data <- read.csv(
+  file_path_Suldal,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Suldal <- Suldal_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Suldal <- Suldal_data %>%
+  filter(Lexeme %in% lexemes_Suldal)
+
+
+#datasets
+df_full_Suldal <- combine_lexeme_values_full(filtered_data_Suldal)
+
+df_ov_Suldal <- split_overabundant_cells(df_full_Suldal)
+
+df_hyp_Suldal <- combine_lexeme_values_hist_status(filtered_data_Suldal)
+```
+
+
+```{r}
+#Ulvik
+
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Ulvik <- file.path(folder_path, "Ulvik.csv")
+
+Ulvik_data <- read.csv(
+  file_path_Ulvik,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Ulvik <- Ulvik_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Ulvik <- Ulvik_data %>%
+  filter(Lexeme %in% lexemes_Ulvik)
+
+
+#datasets
+df_full_Ulvik <- combine_lexeme_values_full(filtered_data_Ulvik)
+
+df_ov_Ulvik <- split_overabundant_cells(df_full_Ulvik)
+
+df_hyp_Ulvik <- combine_lexeme_values_hist_status(filtered_data_Ulvik)
+```
+
+
+```{r}
+#Odda
+
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Odda <- file.path(folder_path, "Odda.csv")
+
+Odda_data <- read.csv(
+  file_path_Odda,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Odda <- Odda_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Odda <- Odda_data %>%
+  filter(Lexeme %in% lexemes_Odda)
+
+
+#datasets
+df_full_Odda <- combine_lexeme_values_full(filtered_data_Odda)
+
+df_ov_Odda <- split_overabundant_cells(df_full_Odda)
+
+df_hyp_Odda <- combine_lexeme_values_hist_status(filtered_data_Odda)
+```
+
+```{r}
+#Lavik
+
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Lavik <- file.path(folder_path, "Lavik.csv")
+
+Lavik_data <- read.csv(
+  file_path_Lavik,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Lavik <- Lavik_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Lavik <- Lavik_data %>%
+  filter(Lexeme %in% lexemes_Lavik)
+
+
+#datasets
+df_full_Lavik <- combine_lexeme_values_full(filtered_data_Lavik)
+
+df_ov_Lavik <- split_overabundant_cells(df_full_Lavik)
+
+df_hyp_Lavik <- combine_lexeme_values_hist_status(filtered_data_Lavik)
+```
+
+```{r}
+#Nordfjord
+
+folder_path <- "datasets/G_lists_dataset"
+
+
+file_path_Nordfjord <- file.path(folder_path, "Nordfjord.csv")
+
+Nordfjord_data <- read.csv(
+  file_path_Nordfjord,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Nordfjord <- Nordfjord_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Nordfjord <- Nordfjord_data %>%
+  filter(Lexeme %in% lexemes_Nordfjord)
+
+
+#datasets
+df_full_Nordfjord <- combine_lexeme_values_full(filtered_data_Nordfjord)
+
+df_ov_Nordfjord <- split_overabundant_cells(df_full_Nordfjord)
+
+df_hyp_Nordfjord <- combine_lexeme_values_hist_status(filtered_data_Nordfjord)
+```
+
+```{r}
+#Syvde
+
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Syvde <- file.path(folder_path, "Syvde.csv")
+
+Syvde_data <- read.csv(
+  file_path_Syvde,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Syvde <- Syvde_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Syvde <- Syvde_data %>%
+  filter(Lexeme %in% lexemes_Syvde)
+
+
+#datasets
+df_full_Syvde <- combine_lexeme_values_full(filtered_data_Syvde)
+
+df_ov_Syvde <- split_overabundant_cells(df_full_Syvde)
+
+df_hyp_Syvde <- combine_lexeme_values_hist_status(filtered_data_Syvde)
+
+```
+
+
+```{r}
+#Sogndal
+folder_path <- "datasets/G_lists_dataset"
+
+file_path_Sogndal <- file.path(folder_path, "Sogndal.csv")
+
+Sogndal_data <- read.csv(
+  file_path_Sogndal,
+  sep = ";",
+  header = TRUE
+)
+
+lexemes_Sogndal <- Sogndal_data %>%
+  filter(Hist_status %in% c("a", "e")) %>%
+  filter(!is.na(Class_label) & Class_label != "") %>%
+  pull(Lexeme) %>%
+  unique() 
+
+filtered_data_Sogndal <- Sogndal_data %>%
+  filter(Lexeme %in% lexemes_Sogndal)
+
+
+#datasets
+df_full_Sogndal <- combine_lexeme_values_full(filtered_data_Sogndal)
+
+df_ov_Sogndal <- split_overabundant_cells(df_full_Sogndal)
+
+df_hyp_Sogndal <- combine_lexeme_values_hist_status(filtered_data_Sogndal)
+```
+
+```{r}
+#unified table for all the dataframes
+
+systems_all <- tibble::tibble(
+  dialect = c("Avaldsnes", "Fitjar", "Herdla", "Meland", "Odda", "Sjernaroey", "Sogndal", "Strand", "Suldal", "Ulvik", "Lavik", "Nordfjord", "Syvde"
+  ),
+  
+  full = list(
+    df_full_Avaldsnes,
+    df_full_Fitjar, df_full_Herdla, df_full_Meland, df_full_Odda, df_full_Sjernaroey, df_full_Sogndal, df_full_Strand, df_full_Suldal, df_full_Ulvik, df_full_Lavik, df_full_Nordfjord, df_full_Syvde
+  ),
+  
+  ov = list(
+    df_ov_Avaldsnes,
+    df_ov_Fitjar, df_ov_Herdla, df_ov_Meland, df_ov_Odda, df_ov_Sjernaroey, df_ov_Sogndal, df_ov_Strand, df_ov_Suldal, df_ov_Ulvik, df_ov_Lavik, df_ov_Nordfjord, df_ov_Syvde
+  ),
+  
+  hyp = list(
+    df_hyp_Avaldsnes,
+    df_hyp_Fitjar, df_hyp_Herdla, df_hyp_Meland, df_hyp_Odda, df_hyp_Sjernaroey, df_hyp_Sogndal, df_hyp_Strand, df_hyp_Suldal, df_hyp_Ulvik, df_hyp_Lavik, df_hyp_Nordfjord, df_hyp_Syvde
+  )
+)
+
+
+```
+
+
+```{r}
+#take dataset, return table for the measures
+
+cells <- c("infinitive", "present", "preterite", "supine")
+
+measure_entropy_one <- function(data, label) {
+  tibble::tibble(
+    system_label = label,
+    measure      = "entropy",
+    weighting    = c("class", "lexeme"),
+    value        = c(
+      global_entropy(data, cells, weighted = FALSE),
+      global_entropy(data, cells, weighted = TRUE)
+    )
+  )
+}
+
+measure_accuracy_one <- function(data, label) {
+  tibble::tibble(
+    system_label = label,
+    measure      = "best_guess_accuracy",
+    weighting    = c("class", "lexeme"),
+    value        = c(
+      global_accuracy_best_guess(data, cells, weighted = FALSE),
+      global_accuracy_best_guess(data, cells, weighted = TRUE)
+    )
+  )
+}
+
+
+```
+
+```{r}
+#run all together
+
+results_all <- systems_all %>%
+  dplyr::rowwise() %>%
+  dplyr::mutate(
+    measures = list(dplyr::bind_rows(
+      # entropy for all 3
+      measure_entropy_one(full, "full_attested"),
+      measure_entropy_one(ov,   "ov_attested"),
+      measure_entropy_one(hyp,  "hypothetical"),
+      
+      # accuracy only for full and hypothetical
+      measure_accuracy_one(full, "full_attested"),
+      measure_accuracy_one(hyp,  "hypothetical")
+    ))
+  ) %>%
+  dplyr::ungroup() %>%
+  tidyr::unnest(measures)
+
+results_diff <- results_all %>%
+  tidyr::pivot_wider(
+    id_cols     = c(dialect, measure, weighting),
+    names_from  = system_label,
+    values_from = value
+  ) %>%
+  dplyr::mutate(
+    diff_full_minus_hyp = full_attested - hypothetical,
+    diff_ov_minus_hyp   = ov_attested   - hypothetical
+  )
+
+#means and sd across the different results
+mean_SD <- results_all %>%
+  group_by(system_label, measure, weighting) %>%
+  summarise(
+    mean_value = mean(value, na.rm = TRUE),
+    sd_value   = sd(value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+```
+
+```{r}
+#plotting
+
+dialect_order <- c(
+  "Strand", "Sjernaroey", "Avaldsnes", "Fitjar", "Herdla", "Meland", "Sogndal", "Suldal", "Odda",  "Ulvik",
+  "Lavik", "Nordfjord", "Syvde"
+)
+
+results_all  <- results_all  %>%
+  dplyr::mutate(dialect = factor(dialect, levels = dialect_order))
+
+results_diff <- results_diff %>%
+  dplyr::mutate(dialect = factor(dialect, levels = dialect_order))
+
+entropy_diff <- results_diff %>%
+  dplyr::filter(measure == "entropy")
+
+p_full <- ggplot(entropy_diff,
+       aes(x = dialect,
+           y = diff_full_minus_hyp,
+           fill = weighting)) +
+  geom_col(
+    position = position_dodge(width = 0.7),
+    width    = 0.6,
+    colour   = "black",
+    size     = 0.4
+  ) +
+  geom_text(
+    aes(label = round(diff_full_minus_hyp, 2)),
+    position = position_dodge(width = 0.7),
+    vjust    = -0.3,    
+    colour   = "black",
+    size     = 4
+  ) +
+  scale_fill_manual(
+  name   = "Weighting scheme",
+  values = c(
+    "class"  = "#BDBDBD",
+    "lexeme" = "#0072B2"
+  ),
+  labels = c(
+    "class"  = "By class",
+    "lexeme" = "By lexeme"
+  )
+  ) +
+  labs(
+    x = "Dialect point",
+    y = "Difference in average \n conditional entropy in bits \n (attested  − hypothetical)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(
+      angle = 45, hjust = 1, vjust = 1, size = 14
+    ),
+    legend.text     = element_text(size = 14),
+    legend.position = "right"
+  )
+
+ggsave("entropy_diff.png", p_full,
+       width  = 9,  
+       height = 5,
+       units  = "in",
+       dpi    = 300)
+
+
+p_distr <- ggplot(entropy_diff,
+       aes(x = dialect,
+           y = diff_ov_minus_hyp,
+           fill = weighting)) +
+  geom_col(
+    position = position_dodge(width = 0.7),
+    width    = 0.6,
+    colour   = "black",
+    size     = 0.4
+  ) +
+  geom_text(
+    aes(label = round(diff_ov_minus_hyp, 2)),
+    position = position_dodge(width = 0.7),
+    vjust    = -0.3,    
+    colour   = "black",
+    size     = 4
+  ) +
+  scale_fill_manual(
+  name   = "Weighting scheme",
+  values = c(
+    "class"  = "#BDBDBD",
+    "lexeme" = "#0072B2"
+  ),
+  labels = c(
+    "class"  = "By class",
+    "lexeme" = "By lexeme"
+  )
+  ) +
+  labs(
+    x = "Dialect point",
+    y = "Difference in average \n conditional entropy in bits \n (attested  − hypothetical)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(
+      angle = 45, hjust = 1, vjust = 1, size = 14
+    ),
+    legend.text     = element_text(size = 14),
+    legend.position = "right"
+  )
+
+ggsave("entropy_diff_distrib.png", p_distr,
+       width  = 9,  
+       height = 5,
+       units  = "in",
+       dpi    = 300)
+
+
+acc_scatter <- results_diff %>%
+  dplyr::filter(measure == "best_guess_accuracy")
+
+
+p_acc <- ggplot(acc_scatter,
+       aes(x = dialect,
+           y = diff_full_minus_hyp,
+           fill = weighting)) +
+  geom_col(
+    position = position_dodge(width = 0.7),
+    width    = 0.6,
+    colour   = "black",
+    size     = 0.4
+  ) +
+  geom_text(
+    aes(label = round(diff_full_minus_hyp, 2),
+      y     = diff_full_minus_hyp + ifelse(diff_full_minus_hyp >= 0, 0.01, -0.01)
+    ),
+    position = position_dodge(width = 0.7),
+    vjust    = 0.5,
+    colour   = "black",
+    size     = 4
+  ) +
+  scale_fill_manual(
+  name   = "Weighting scheme",
+  values = c(
+    "class"  = "#BDBDBD",
+    "lexeme" = "#0072B2"
+  ),
+  labels = c(
+    "class"  = "By class",
+    "lexeme" = "By lexeme"
+  )
+  ) +
+  labs(
+    x = "Dialect point",
+    y = "Difference in average \n probability of success \n(attested − hypothetical)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(
+      angle = 45, hjust = 1, vjust = 1, size = 14
+    ),
+    legend.text     = element_text(size = 14),
+    legend.position = "right"
+  )
+
+ggsave("acc_distrib.png", p_acc,
+       width  = 9,  
+       height = 5,
+       units  = "in",
+       dpi    = 300)
+
+
+
+```
+
+
+```{r}
+hyp_ranges <- acc_scatter %>%
+  group_by(weighting) %>%
+  summarise(
+    H_min = min(full_attested, na.rm = TRUE),
+    H_max = max(full_attested, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+
+

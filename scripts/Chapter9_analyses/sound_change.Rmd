@@ -1,0 +1,177 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+
+#this is for overweight vs vowel balance in VB dialects
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+folder_path <- "datasets/NDS_dataset"
+
+NDS_data <- read.csv(
+  file = file.path(folder_path, "a_class_dataset.csv"),
+  sep = ";",
+  header = TRUE
+)
+
+#filter for VB areas only and for prets only
+
+NDS_data$`Dialect_area` <- iconv(
+  NDS_data$`Dialect_area`,
+  from = "latin1",
+  to   = "UTF-8"
+)
+
+unique(NDS_data$`Dialect_area`)
+
+filtered <- NDS_data %>%
+  filter(
+    Dialect_area %in% c("Midlandsk", "Troendsk", "Austlandsk", "Austlandsk/Midlandsk"),
+    Cell == "preterite"
+  )
+
+
+lexeme_long <- filtered %>%
+  filter(MN_class != "NA") %>%
+  filter(MN_class %in% c("a", "e", "doubl a/e")) %>%
+  mutate(
+    class_collapsed = case_when(
+      MN_class == "a"                 ~ "A-class",
+      MN_class %in% c("e", "doubl a/e") ~ "E-class (including a/e doublets)",
+    )
+  ) %>%
+  # counts per Lexeme and collapsed class
+  group_by(Lexeme, class_collapsed) %>%
+  summarise(
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  # total per Lexeme and percentages
+  group_by(Lexeme) %>%
+  mutate(
+    total = sum(n),
+    perc  = 100 * n / total
+  ) %>%
+  ungroup()
+
+visualization <- lexeme_long %>%
+  mutate(
+    Lexeme = dplyr::case_when(
+      Lexeme == "kasta" ~ "O kasta 'throw'",
+      Lexeme == "kosta" ~ "O kosta 'cost'",
+      Lexeme == "lika"  ~ "O lika 'like'",
+      Lexeme == "maala"  ~ "O m\u00e5la 'paint'",
+      Lexeme == "tapa"  ~ "VB tapa 'lose'",
+      Lexeme == "kalla" ~ "O kalla 'call, name'",
+      Lexeme == "takka" ~ "O takka 'thank'",
+      Lexeme == "fiska" ~ "O fiska 'fish'",
+      Lexeme == "lova"  ~ "VB lova 'promise'",
+      Lexeme == "baka"  ~ "VB baka 'bake'",
+      Lexeme == "bora"  ~ "VB bora 'drill'",
+      Lexeme == "laga"  ~ "VB laga 'make'",
+      TRUE              ~ Lexeme   # fallback if something is missing
+    )
+  )
+
+p_byverb <- ggplot(visualization, aes(x = Lexeme, y = perc, fill = class_collapsed)) +
+  geom_col(width = 0.6, colour = "black") +
+  geom_text(
+    aes(label = n),
+    position = position_stack(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_fill_manual(
+    name = "Inflectional class",
+    values = c(
+      "A-class"          = "#BDBDBD",
+      "E-class (including a/e doublets)"   = "#2F2F2F"
+    )
+  ) +
+  labs(
+    x = "Lexeme",
+    y = "Percentage of forms"   
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14)
+  )
+
+ggsave(
+  filename = "p_byverb.png",
+  plot     = p_byverb,
+  width    = 8, 
+  height   = 5,
+  units    = "in"
+)
+
+#overview per category overweight vs vowel balance
+
+lexeme_long_OV <- lexeme_long %>%
+  mutate(
+    OV_cat = dplyr::case_when(
+      Lexeme %in% c("kasta", "kosta", "lika", "maala", "kalla", "takka", "fiska") ~ "O",
+      Lexeme %in% c("tapa", "lova", "baka", "bora", "laga")                       ~ "VB",
+    )
+  ) %>%
+  filter(!is.na(OV_cat)) %>%
+  # counts per O/VB category and collapsed class
+  group_by(OV_cat, class_collapsed) %>%
+  summarise(
+    n = sum(n),     
+    .groups = "drop"
+  ) %>%
+  # totals per O/VB category and percentages
+  group_by(OV_cat) %>%
+  mutate(
+    total = sum(n),
+    perc  = 100 * n / total
+  ) %>%
+  ungroup()
+
+# visualization
+ggplot(lexeme_long_OV, aes(x = OV_cat, y = perc, fill = class_collapsed)) +
+  geom_col(width = 0.6, colour = "black") +
+  geom_text(
+    aes(label = n),
+    position = position_stack(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) + scale_x_discrete(
+    name   = "Verb group",
+    breaks = c("O", "VB"),
+    labels = c("Overweight", "Vowel balance")
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_fill_manual(
+  name   = "Inflectional class",
+  values = c(
+      "A-class"          = "#BDBDBD",
+      "E-class (including a/e doublets)"   = "#2F2F2F"
+    )
+) +
+  labs(
+    x = "Verb group",
+    y = "Percentage of forms"
+  ) + theme_classic() +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.position = "right"
+  )
+
+
+```
+

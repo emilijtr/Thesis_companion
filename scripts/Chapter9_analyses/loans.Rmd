@@ -1,0 +1,93 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+
+folder_path <- "datasets/G_lists_dataset"
+
+csv_files <- list.files(path = folder_path, pattern = "*.csv", full.names = TRUE)
+
+combined_data <- csv_files %>%
+  map_dfr(~ read_delim(.x, delim = ";"))
+
+df_loan_summary <- combined_data |>
+  filter(Hist_status == "loan", !is.na(Class_label)) |>
+  group_by(Lexeme, Class_label) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(Lexeme) |>
+  mutate(
+    total = sum(n),
+    pct = 100 * n / total
+  ) |>
+  ungroup()
+
+library(dplyr)
+library(ggplot2)
+
+#summary of a, e and hybrid across verbs
+df_loan_summary <- combined_data |>
+  filter(Hist_status == "loan", !is.na(Class_label)) |>
+  group_by(Lexeme, Class_label) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(Lexeme) |>
+  mutate(
+    total = sum(n),
+    pct = 100 * n / total
+  ) |>
+  ungroup()
+
+df_loan_summary <- df_loan_summary %>%
+  mutate(
+    Lexeme = dplyr::case_when(
+      Lexeme == "bruka" ~ "bruka 'use'",
+      Lexeme == "hakka" ~ "hakka 'chop'",
+      Lexeme == "klaga"  ~ "klaga 'complain'",
+      Lexeme == "koka"  ~ "koka 'cook'",
+      Lexeme == "para"  ~ "para 'pair'",
+      Lexeme == "pela" ~ "pela 'pick, peel'",
+      Lexeme == "r\u00E5ka" ~ "r\u00E5ka 'hit, encounter'",
+      Lexeme == "snakka" ~ "snakka 'talk, speak'",
+      Lexeme == "spela"  ~ "spela 'play'",
+      Lexeme == "streva"  ~ "streva 'struggle, strive'",
+      TRUE              ~ Lexeme   # fallback if something is missing
+    )
+  )
+
+
+
+ggplot(df_loan_summary,
+       aes(x = Lexeme,
+           y = pct,
+           fill = Class_label)) +
+  geom_col(width = 0.6, colour = "black") +
+  geom_text(
+    aes(label = n),
+    position = position_stack(vjust = 0.5),  
+    color = "white",
+    size  = 4
+  ) +
+  scale_fill_manual(
+    name   = "Class category",
+    values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2" ),
+    labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+  ) +
+  labs(
+    x = "Lexeme",
+    y = "Percentage of paradigms"
+  )  +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14)
+  )
+
+
+```
+
+

@@ -1,0 +1,849 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+#loading packages and cleaning data
+
+library(dplyr)
+library(readr)
+library(purrr)
+library(tidyr)
+library(lme4)
+library(ggplot2)
+library(tidyverse)
+library(scales)
+
+files_path <- "datasets/G_lists_dataset"
+
+csv_files <- list.files(path = files_path, pattern = "*.csv", full.names = TRUE)
+
+combined_data <- csv_files %>%
+  map_dfr(~ read_delim(.x, delim = ";"))
+
+```
+
+
+```{r}
+#diachronic analysis
+
+#filtering out only ON a and e class verbs
+combined_data <- combined_data %>%
+  filter(Hist_status %in% c("a", "e"))
+
+
+#i will only look into lexemes that have undergone a>a, a>e, e>a, e>e
+
+combined_data <- combined_data %>%
+  mutate(Shift_status = as.character(Shift_status))
+
+lexemes_to_keep <- combined_data %>%
+  filter(
+    Cell == "inf",
+    !is.na(Shift_status),
+    Shift_status %in% c("a>a", "a>e", "e>a", "e>e")
+  ) %>%
+  pull(Lexeme) %>%
+  unique()
+
+
+# Keep all rows for those lexemes
+combined_data <- combined_data %>%
+  filter(
+    Lexeme %in% lexemes_to_keep,
+    !is.na(Shift_status),
+    Shift_status %in% c("a>a", "a>e", "e>a", "e>e")
+  )
+
+
+#keeping only relevant stem shapes (deleting double stem shapes and V:)
+combined_data <- combined_data %>%
+  filter(Stem_type %in% c("V:C", "VC", "VCC"))
+
+
+```
+
+
+
+```{r}
+#EDA
+
+#plotting shift no shift for ON a class verbs 
+
+#making an order in which dialects will appear in visualizations, some characters are unrecognized, therefore using numeric indexes here
+
+dialects <- sort(unique(combined_data$Dialect))
+dials_df <- data.frame(ix = seq_along(dialects), dialect = dialects, stringsAsFactors = FALSE)
+print(dials_df)
+
+chosen_index_order <- c(2,3,12,5,7,15,13,1,4,6,9,14,16,11,18,8,10,17)
+
+my_order <- dialects[chosen_index_order]
+
+combined_data <- combined_data %>% mutate(Dialect_ordered = factor(Dialect, levels = my_order))
+
+subset_ONa <- combined_data %>%
+  filter(Shift_status %in% c("a>a", "a>e"), !is.na(Shift_status))
+
+
+#counts, used in descriptive results
+counts_by_dialect_A <- subset_ONa %>%
+  group_by(Dialect_area, Dialect, Shift_status) %>%
+  summarise(n = n(), .groups = "drop")
+
+props_by_dialect_A <- counts_by_dialect_A %>%
+  group_by(Dialect_area, Dialect) %>%
+  mutate(
+    total = sum(n),
+    prop = n / total
+  ) %>%
+  ungroup()
+
+props_by_dialect_A
+
+props_by_area_A <- subset_ONa %>%
+  group_by(Dialect_area, Shift_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Dialect_area) %>%
+  mutate(
+    total = sum(n),
+    prop  = n / total
+  ) %>%
+  ungroup()
+
+props_by_area_A
+
+#visualization
+
+ggplot(subset_ONa, aes(x = Dialect_ordered, fill = Shift_status)) +
+  geom_bar(position = "fill", width = 0.7, colour = "black") +
+  facet_wrap(~ Dialect_area, scales = "free_x", strip.position = "bottom", labeller = labeller(Dialect_area = c(
+      "East" = "East Nw",
+      "Northwestern"   = "Northwestern Nw",
+      "Southern"  = "Southern Nw",
+      "Southwestern" = "Southwestern Nw"))
+      ) +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 3,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("a>a" = "#BDBDBD", "a>e" = "#2F2F2F")) +
+  labs(x = "Dialect area and dialect point", y = "Percentage of paradigms", fill = "Shift status") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  theme_classic() +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 10),
+    legend.position = "right"
+  )
+```
+
+
+```{r}
+#plotting shift no shift for ON e class verbs 
+subset_ONe <- combined_data %>%
+  filter(Shift_status %in% c("e>e", "e>a"), !is.na(Shift_status))
+
+#counts used in descriptive results
+
+counts_by_dialect_E <- subset_ONe %>%
+  group_by(Dialect_area, Dialect, Shift_status) %>%
+  summarise(n = n(), .groups = "drop")
+
+props_by_dialect_E <- counts_by_dialect_E %>%
+  group_by(Dialect_area, Dialect) %>%
+  mutate(
+    total = sum(n),
+    prop = n / total
+  ) %>%
+  ungroup()
+
+props_by_dialect_E
+
+props_by_area_E <- subset_ONe %>%
+  group_by(Dialect_area, Shift_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Dialect_area) %>%
+  mutate(
+    total = sum(n),
+    prop  = n / total
+  ) %>%
+  ungroup()
+
+props_by_area_E
+
+
+ggplot(subset_ONe, aes(x = Dialect_ordered, fill = Shift_status)) +
+  geom_bar(position = "fill", width = 0.7, colour = "black") + 
+  facet_wrap(~ Dialect_area, scales = "free_x", strip.position = "bottom", labeller = labeller(Dialect_area = c(
+      "East" = "East Nw",
+      "Northwestern"   = "Northwestern Nw",
+      "Southern"  = "Southern Nw",
+      "Southwestern" = "Southwestern Nw"))
+      ) +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 3,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("e>e" = "#BDBDBD", "e>a" = "#2F2F2F")) +
+  labs(x = "Dialect area and dialect point", y = "Percentage of paradigms", fill = "Shift status") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  theme_classic() +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 10),
+    legend.position = "right"
+  )
+```
+
+```{r}
+#paradigmatic configs of the shifted verbs
+
+#this one is for ON a class verbs
+pattern_summary_A <- subset_ONa %>%
+  filter(Shift_status == "a>e") %>%
+  group_by(Pattern) %>%
+  summarise(
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n)) %>%
+  mutate(
+    pct = n / sum(n) * 100
+  )
+
+pattern_summary_A
+
+
+ggplot(pattern_summary_A,
+       aes(x = reorder(Pattern, -pct), y = pct)) +
+  geom_col(fill = "#BDBDBD", colour = "black", size = 0.4) +
+  geom_text(aes(label = n),
+            vjust = -0.3, colour = "black", size = 4) +
+  labs(
+    x = "Configuration",
+    y = "Percentage of paradigms"
+  ) +
+  ylim(0, max(pattern_summary_A$pct) * 1.15) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14)
+  )
+
+# for ON e verbs e>a
+
+pattern_summary_e <- subset_ONe %>%
+  filter(Shift_status == "e>a") %>%
+  group_by(Pattern) %>%
+  summarise(
+    n = n(),
+    pct = n / sum(n) * 100
+  ) %>%
+  arrange(desc(n)) %>%
+  mutate(
+    pct = n / sum(n) * 100
+  )
+
+pattern_summary_e
+
+ggplot(pattern_summary_e,
+       aes(x = reorder(Pattern, -pct), y = pct)) +
+  geom_col(fill = "#BDBDBD", colour = "black", size = 0.4) +
+  geom_text(aes(label = n),
+            vjust = -0.3, colour = "black", size = 4) +
+  labs(
+    x = "Configuration",
+    y = "Percentage of paradigms"
+  ) +
+  ylim(0, max(pattern_summary_e$pct) * 1.15) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14)
+  )
+
+
+
+
+```
+
+
+```{r}
+#visualization of shifts by stem shape for ON a verbs
+
+stem_shape_a_shifts <- combined_data %>%
+  filter(Shift_status %in% c("a>a", "a>e"), !is.na(Stem_type), !is.na(Shift_status)) %>%
+  mutate(Stem_type = as.factor(Stem_type),
+         Shift_status = factor(Shift_status, levels = c("a>a", "a>e")))
+
+stem_shape_summary_A <- stem_shape_a_shifts %>%
+  count(Stem_type, Shift_status, name = "n") %>%
+  group_by(Stem_type) %>%
+  mutate(
+    prop = n / sum(n),          # proportion 0–1
+    pct  = round(prop * 100, 1) # percentage with one decimal
+  ) %>%
+  ungroup()
+
+stem_shape_summary_A
+
+
+ggplot(stem_shape_a_shifts, aes(x = Stem_type, fill = Shift_status)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("a>a" = "#BDBDBD", "a>e" = "#2F2F2F")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_x_discrete(labels = c(
+    "V:C" = "V:C",
+    "VC"  = "VC:",
+    "VCC" = expression(VC[1]*C[2])
+  )) +
+  labs(x = "Stem shape", y = "Percentage of paradigms", fill = "Shift status") +
+  theme_classic(base_size = 14) +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#visualization of shifts by stem shape for ON e verbs
+
+stem_shape_e_shifts <- combined_data %>%
+  filter(Shift_status %in% c("e>e", "e>a"), !is.na(Stem_type), !is.na(Shift_status)) %>%
+  mutate(Stem_type = as.factor(Stem_type),
+         Shift_status = factor(Shift_status, levels = c("e>e", "e>a")))
+
+stem_shape_summary_E <- stem_shape_e_shifts %>%
+  count(Stem_type, Shift_status, name = "n") %>%
+  group_by(Stem_type) %>%
+  mutate(
+    prop = n / sum(n),          # proportion 0–1
+    pct  = round(prop * 100, 1) # percentage with one decimal
+  ) %>%
+  ungroup()
+
+stem_shape_summary_E
+
+ggplot(stem_shape_e_shifts, aes(x = Stem_type, fill = Shift_status)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("e>e" = "#BDBDBD", "e>a" = "#2F2F2F")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_x_discrete(labels = c(
+    "V:C" = "V:C",
+    "VC"  = "VC:",
+    "VCC" = expression(VC[1]*C[2])
+  )) +
+  labs(x = "Stem shape", y = "Percentage of paradigms", fill = "Shift status") +
+  theme_classic(base_size = 14) +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#visualizing shift by stem final consonant ON a
+
+stem_final_a_shifts <- combined_data %>%
+  filter(Shift_status %in% c("a>a", "a>e"), !is.na(TD_nonTD), !is.na(Shift_status)) %>%
+  mutate(Stem_type = as.factor(TD_nonTD),
+         Shift_status = factor(Shift_status, levels = c("a>a", "a>e")))
+
+stem_final_summary_A <- stem_final_a_shifts %>%
+  count(Stem_type, Shift_status, name = "n") %>%
+  group_by(Stem_type) %>%
+  mutate(
+    prop = n / sum(n),          # proportion 0–1
+    pct  = round(prop * 100, 1) # percentage with one decimal
+  ) %>%
+  ungroup()
+
+stem_final_summary_A
+
+ggplot(stem_final_a_shifts, aes(x = TD_nonTD, fill = Shift_status)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  scale_x_discrete(
+    labels = c("TD" = "t/d",
+               "non" = "non t/d")
+  ) +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+   scale_fill_manual(values = c("a>a" = "#BDBDBD", "a>e" = "#2F2F2F")) +
+  labs(x = "Stem-final consonant", y = "Percentage of paradigms", fill = "Shift status") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  theme_classic(base_size = 14) +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#visualizing shift by stem final consonant ON e
+
+stem_final_e_shifts <- combined_data %>%
+  filter(Shift_status %in% c("e>e", "e>a"), !is.na(TD_nonTD), !is.na(Shift_status)) %>%
+  mutate(Stem_type = as.factor(TD_nonTD),
+         Shift_status = factor(Shift_status, levels = c("e>e", "e>a")))
+
+stem_final_summary_E<- stem_final_e_shifts %>%
+  count(Stem_type, Shift_status, name = "n") %>%
+  group_by(Stem_type) %>%
+  mutate(
+    prop = n / sum(n),          # proportion 0–1
+    pct  = round(prop * 100, 1) # percentage with one decimal
+  ) %>%
+  ungroup()
+
+stem_final_summary_E
+
+ggplot(stem_final_e_shifts, aes(x = TD_nonTD, fill = Shift_status)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  scale_x_discrete(
+    labels = c("TD" = "t/d",
+               "non" = "non t/d")
+  ) +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(values = c("e>e" = "#BDBDBD", "e>a" = "#2F2F2F")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(x = "Stem-final consonant", y = "Percentage of paradigms", fill = "Shift status") +
+  theme_classic(base_size = 14) +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+```
+
+
+```{r}
+
+#token frequency distributions
+#untransformed token frequency valyes
+
+ggplot(subset_ONa, aes(x = Shift_status, y = Token_fr, fill = Shift_status)) +
+  geom_violin(trim = TRUE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.08, outlier.shape = 21, outlier.size = 1,
+               color = "black", fill = "white", alpha = 0.9) +
+  scale_fill_manual(values = c("a>a" = "#0072B2", "a>e" = "#BDBDBD")) +
+  labs(x = "Shift status", y = "Raw token frequency") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none")
+
+ggplot(subset_ONe, aes(x = Shift_status, y = Token_fr, fill = Shift_status)) +
+  geom_violin(trim = TRUE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.08, outlier.shape = 21, outlier.size = 1,
+               color = "black", fill = "white", alpha = 0.9) +
+  scale_fill_manual(values = c("e>e" = "#0072B2", "e>a" = "#BDBDBD")) +
+  labs(x = "Shift status", y = "Raw token frequency") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none")
+
+#zoom in
+
+ggplot(subset_ONa, aes(x = Shift_status, y = Token_fr, fill = Shift_status)) +
+  geom_violin(trim = TRUE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.08, outlier.shape = 21, outlier.size = 1,
+               color = "black", fill = "white", alpha = 0.9) +
+  scale_fill_manual(values = c("a>a" = "#0072B2", "a>e" = "#BDBDBD")) +
+  coord_cartesian(ylim = c(0, 1000)) + 
+  labs(x = "Shift status", y = "Raw token frequency") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none")
+
+ggplot(subset_ONe, aes(x = Shift_status, y = Token_fr, fill = Shift_status)) +
+  geom_violin(trim = TRUE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.08, outlier.shape = 21, outlier.size = 1,
+               color = "black", fill = "white", alpha = 0.9) +
+  scale_fill_manual(values = c("e>e" = "#0072B2", "e>a" = "#BDBDBD")) +
+  coord_cartesian(ylim = c(0, 1000)) +  
+  labs(x = "Shift status", y = "Raw token frequency") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none")
+
+
+
+
+```
+
+
+```{r}
+#fitting models, fiting two separate models for a-class and e-class verbs, as different factors may be at work in different ways
+
+#ON a-class verbs first
+#keeping only relevant data (a>e and a>a) and coding 0 1
+data_model_A <- combined_data %>%
+  filter(Shift_status %in% c("a>e", "a>a")) %>%
+  mutate(outcome = ifelse(Shift_status == "a>a", 0, 1))
+
+#transforming token frequency
+data_model_A <- data_model_A %>%
+  mutate(log_freq = log(Token_fr + 1))
+
+ 
+#Mixed effects model with fixed predictors and random effects for overall data
+
+model_A <- glmer(outcome ~ Stem_type + TD_nonTD + log_freq + Dialect_area + (1 | Dialect) + (1 | Lexeme),
+               data = data_model_A,
+               family = binomial,
+               control = glmerControl(optimizer = "bobyqa",
+                                      optCtrl = list(maxfun = 1e5)))
+summary(model_A)
+
+
+#now ON e class verbs
+#keeping only relevant data (e>e and e>a) and coding 0 1
+data_model_E <- combined_data %>%
+  filter(Shift_status %in% c("e>e", "e>a")) %>%
+  mutate(outcome = ifelse(Shift_status == "e>e", 0, 1))
+
+#transforming token frequency, log, and scaling
+data_model_E <- data_model_E %>%
+  mutate(log_freq = log(Token_fr + 1))
+
+ 
+#Mixed effects model with fixed predictors and random effects for overall data
+
+model_E <- glmer(outcome ~ Stem_type + TD_nonTD + log_freq + Dialect_area + (1 | Dialect) + (1 | Lexeme),
+               data = data_model_E,
+               family = binomial,
+               control = glmerControl(optimizer = "bobyqa",
+                                      optCtrl = list(maxfun = 1e5)))
+summary(model_E)
+
+```
+
+
+```{r}
+#this is part II - synchronic membership. Here I look into pure a, e and mixed classes
+
+folder_path <- "C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/mixed class and complexity/IC_shifts"
+
+list_of_files <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+
+
+combined_data_synchronic <- list_of_files %>%
+  lapply(function(f) read_delim(f, delim = ";") %>% mutate(dialect_file = basename(f))) %>%
+  bind_rows()
+
+
+dialects <- sort(unique(combined_data_synchronic$Dialect))
+dials_df <- data.frame(ix = seq_along(dialects), dialect = dialects, stringsAsFactors = FALSE)
+print(dials_df)
+
+chosen_index_order <- c(2,3,12,5,7,15,13,1,4,6,9,14,16,11,18,8,10,17)
+
+my_order <- dialects[chosen_index_order]
+
+combined_data_synchronic <- combined_data_synchronic %>% mutate(Dialect_ordered = factor(Dialect, levels = my_order))
+
+
+#keeping only relevant stem shapes (deleting double stem shapes and V:)
+combined_data_synchronic <- combined_data_synchronic %>%
+  filter(Stem_type %in% c("V:C", "VC", "VCC"))
+
+#keeping only the ones that have a class label (thereby keeping only pure a, pure e or mixed and excluding any other combinations)
+
+combined_data_synchronic <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid"))
+```
+
+```{r}
+#descriptive analysis
+#the distribution of classes per dialect area
+
+subset_classes_per_dialect <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid"))
+
+counts_by_dialect_mixed <- subset_classes_per_dialect %>%
+  group_by(Dialect_area, Dialect, Class_label) %>%
+  summarise(n = n(), .groups = "drop")
+
+props_by_dialect_mixed <- counts_by_dialect_mixed %>%
+  group_by(Dialect_area, Dialect) %>%
+  mutate(
+    total = sum(n),
+    prop = n / total
+  ) %>%
+  ungroup()
+
+props_by_dialect_mixed
+
+counts_by_area_mixed <- subset_classes_per_dialect %>%
+  group_by(Dialect_area, Class_label) %>%
+  summarise(n = n(), .groups = "drop")
+
+props_by_area_mixed <- counts_by_area_mixed %>%
+  group_by(Dialect_area) %>%
+  mutate(
+    total = sum(n),
+    prop  = n / total
+  ) %>%
+  ungroup()
+
+props_by_area_mixed
+
+ggplot(subset_classes_per_dialect, aes(x = Dialect_ordered, fill = Class_label)) +
+  geom_bar(position = "fill", width = 0.7, colour = "black") +
+  facet_wrap(~ Dialect_area, scales = "free_x", strip.position = "bottom", labeller = labeller(Dialect_area = c(
+      "East" = "East Nw",
+      "Northwestern"   = "Northwestern Nw",
+      "Southern"  = "Southern Nw",
+      "Southwestern" = "Southwestern Nw"))
+      ) +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 3,
+    color = "white"
+  ) +
+  scale_fill_manual(
+  values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2"),
+  labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+) +
+  labs(x = "Dialect area and dialect point", y = "Percentage of paradigms", fill = "Class category") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  theme_classic() +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 10),
+    legend.position = "right"
+  )
+```
+
+
+```{r}
+#distribution of classes over predictors
+#first stem shapes
+stem_shape_classes_synchronic <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid")) %>%
+  mutate(Stem_type = as.factor(Stem_type),
+         Class_label = factor(Class_label, levels = c("a", "e", "hybrid")))
+
+stem_shape_summary_mixed <- stem_shape_classes_synchronic %>%
+  count(Stem_type, Class_label, name = "n") %>%
+  group_by(Stem_type) %>%
+  mutate(
+    prop = n / sum(n),          # proportion 0–1
+    pct  = round(prop * 100, 1) # percentage with one decimal
+  ) %>%
+  ungroup()
+
+stem_shape_summary_mixed
+
+ggplot(stem_shape_classes_synchronic, aes(x = Stem_type, fill = Class_label)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(
+  values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2"),
+  labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+) +
+  labs(x = "Stem shape", y = "Percentage of paradigms", fill = "Class category") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_x_discrete(labels = c(
+    "V:C" = "V:C",
+    "VC"  = "VC:",
+    "VCC" = expression(VC[1]*C[2])
+  )) +
+  theme_classic(base_size = 14) +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#stem-final cons
+
+stem_final_classes_synchronic <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid")) %>%
+  mutate(TD_nonTD = as.factor(TD_nonTD),
+         Class_label = factor(Class_label, levels = c("a", "e", "hybrid")))
+
+stem_final_summary_mixed <- stem_final_classes_synchronic %>%
+  count(TD_nonTD, Class_label, name = "n") %>%
+  group_by(TD_nonTD) %>%
+  mutate(
+    prop = n / sum(n),          # proportion 0–1
+    pct  = round(prop * 100, 1) # percentage with one decimal
+  ) %>%
+  ungroup()
+
+stem_final_summary_mixed
+
+ggplot(stem_final_classes_synchronic, aes(x = TD_nonTD, fill = Class_label)) +
+  geom_bar(position = "fill", width = 0.6, colour = "black") +
+   scale_x_discrete(
+    labels = c("TD" = "t/d",
+               "non" = "non t/d")
+  ) +
+  geom_text(
+    stat = "count",
+    aes(label = ..count..),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_fill_manual(
+  values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2"),
+  labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+) +
+  labs(x = "Stem-final consonant", y = "Percentage of paradigms", fill = "Class category") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  theme_classic(base_size = 14) +                                     
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14),
+    legend.text  = element_text(size = 14),
+    legend.position = "right"
+  )
+
+#frequencies by class
+
+ggplot(combined_data_synchronic, aes(x = Class_label, y = Token_fr, fill = Class_label)) +
+  geom_violin(trim = TRUE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.08, outlier.shape = 21, outlier.size = 1,
+               color = "black", fill = "white", alpha = 0.9) +
+  scale_fill_manual(
+  values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2")
+  ) + scale_x_discrete(
+    labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+  ) +
+  labs(x = "Class category", y = "Raw token frequency") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none")
+
+ggplot(combined_data_synchronic, aes(x = Class_label, y = Token_fr, fill = Class_label)) +
+  geom_violin(trim = TRUE, alpha = 0.6, color = NA) +
+  geom_boxplot(width = 0.08, outlier.shape = 21, outlier.size = 1,
+               color = "black", fill = "white", alpha = 0.9) +
+  scale_fill_manual(
+  values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2")
+) + scale_x_discrete(
+    labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+  ) +
+  coord_cartesian(ylim = c(0, 1000)) +
+  labs(x = "Class category", y = "Raw token frequency") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none")
+
+
+```
+
+```{r}
+#fitting models to predict classes
+
+#compute a_nota, e_note, hybrid_nothybrid and then compare 
+
+combined_data_synchronic <- combined_data_synchronic %>%
+  mutate(log_frequency = log(Token_fr + 1))
+
+# a vs not_a (not_a = e + hybrid)
+df_a <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid")) %>%  
+  mutate(label = ifelse(Class_label == "a", "a", "nota"),
+         y = as.integer(label == "a")) %>%
+  mutate(label = factor(label, levels = c("nota", "a")))
+
+# e vs not_e (not_e = a + hybrid)
+df_e <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid")) %>%
+  mutate(label = ifelse(Class_label == "e", "e", "note"),
+         y = as.integer(label == "e")) %>%
+  mutate(label = factor(label, levels = c("note", "e")))
+
+# hybrid vs not_H (not_H = a + e)
+df_hybrid <- combined_data_synchronic %>%
+  filter(Class_label %in% c("a", "e", "hybrid")) %>%
+  mutate(label = ifelse(Class_label == "hybrid", "hybrid", "not_H"),
+         y = as.integer(label == "hybrid")) %>%
+  mutate(label = factor(label, levels = c("not_H", "hybrid")))
+
+
+
+
+# Model 1: a_not_a
+model_a_not_a <- glmer(y ~ Stem_type + TD_nonTD + log_frequency + Dialect_area +
+                (1 | Dialect) + (1 | Lexeme),
+                data = df_a,
+             family = binomial,
+             control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5)))
+
+summary(model_a_not_a)
+
+# Model 2: e_not_E
+
+model_e_not_e <- glmer(y ~ Stem_type + TD_nonTD + log_frequency + Dialect_area +
+                (1 | Dialect) + (1 | Lexeme),
+                data = df_e,
+             family = binomial,
+             control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5)))
+
+summary(model_e_not_e)
+
+# Model 3: hybrid not hybrid
+model_hybrid <- glmer(y ~ Stem_type + TD_nonTD + log_frequency + Dialect_area +
+                (1 | Dialect) + (1 | Lexeme),
+                data = df_hybrid, family = binomial,
+             control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5)))
+summary(model_hybrid)
+```
+
+
+```{r}
+#the additional analysis of token fr effects (discussion section)
+
+data_model_all <- combined_data %>%
+  filter(Shift_status %in% c("a>a", "a>e", "e>e", "e>a")) %>%
+  mutate(
+    outcome = case_when(
+      Shift_status %in% c("a>a", "e>e") ~ 0L,  # unchanged
+      Shift_status %in% c("a>e", "e>a") ~ 1L   # changed
+    ),
+    log_freq = log(Token_fr + 1))
+
+model_all <- glmer(
+  outcome ~ Stem_type + TD_nonTD + log_freq + Dialect_area +
+    (1 | Dialect) + (1 | Lexeme),
+  data    = data_model_all,
+  family  = binomial,
+  control = glmerControl(
+    optimizer = "bobyqa",
+    optCtrl   = list(maxfun = 1e5)
+  )
+)
+
+summary(model_all)   
+    
+```

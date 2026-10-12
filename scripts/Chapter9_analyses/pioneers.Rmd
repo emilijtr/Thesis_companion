@@ -1,0 +1,114 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+#this one is proposal of "lexical pioneers"
+
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+
+files_path <- "datasets/G_lists_dataset"
+
+csv_files <- list.files(path = files_path, pattern = "*.csv", full.names = TRUE)
+
+combined_data <- csv_files %>%
+  map_dfr(~ read_delim(.x, delim = ";"))
+
+head(combined_data)
+str(combined_data)
+
+#so what i want to know is ON lexemes that exhibit most shifting
+
+summary_shifts <- combined_data %>%
+  filter(Hist_status == "a") %>%
+  filter(!is.na(Shift_status)) %>% 
+  group_by(Lexeme) %>%
+  summarise(
+    total_a       = n(),                              
+    n_a_to_e      = sum(Shift_status == "a>e"),   
+    n_a_to_a      = sum(Shift_status == "a>a"),      
+    n_other       = total_a - n_a_to_e - n_a_to_a,  
+    perc_a_to_e   = 100 * n_a_to_e / total_a,
+    perc_a_to_a   = 100 * n_a_to_a / total_a
+  ) %>%
+  ungroup() %>%
+  arrange(desc(perc_a_to_e))
+
+top10_lexemes <- summary_shifts %>%
+  slice_head(n = 10) %>%
+  pull(Lexeme)
+
+
+class_dist_top10 <- combined_data %>%
+  filter(Lexeme %in% top10_lexemes) %>%  
+  filter(Hist_status == "a") %>%
+  filter(!is.na(Shift_status)) %>%
+  filter(!is.na(Class_label)) %>%        
+  group_by(Lexeme, Class_label) %>%
+  summarise(
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(Lexeme) %>%
+  mutate(
+    total = sum(n),
+    perc  = 100 * n / total
+  ) %>%
+  ungroup()
+
+lexeme_labels <- tibble(
+  Lexeme   = c("laana", "loena", "skapa", "ropa ", "proeva", "rosa", "svara", "lika", "baka", "tapa"),
+  Lexeme_nice = c("l\u00E5na 'borrow'", "l\u00F8na 'pay, reward'", "skapa 'create'", "ropa 'shout'",
+                  "pr\u00F8va 'try'", "rosa 'praise'", "svara 'answer'", "lika 'like'",
+                  "baka 'bake'", "tapa 'lose'")
+)
+
+
+class_dist_top10 <- class_dist_top10 %>%
+  left_join(
+    summary_shifts %>% select(Lexeme, perc_a_to_e),
+    by = "Lexeme"
+  )
+
+ggplot(
+  class_dist_top10,
+  aes(x = reorder(Lexeme, -perc_a_to_e),  # order by most a→e
+      y = perc,
+      fill = Class_label)
+) +
+  geom_col(width = 0.6, colour = "black") +
+  geom_text(
+    aes(label = n),
+    position = position_stack(vjust = 0.5),
+    size = 4,
+    color = "white"
+  ) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_x_discrete(
+    labels = setNames(lexeme_labels$Lexeme_nice, lexeme_labels$Lexeme)
+  ) +
+  scale_fill_manual(
+    name   = "Class label",
+    values = c("a" = "#BDBDBD", "e" = "#2F2F2F", "hybrid" = "#0072B2"),
+    labels = c("a" = "\"pure\" a", "e" = "\"pure\" e", "hybrid" = "mixed")
+  ) +
+  labs(
+    x = "Lexeme",
+    y = "Percentage of paradigms"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 14)
+  )
+
+
+```
+

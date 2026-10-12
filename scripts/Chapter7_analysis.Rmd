@@ -18,9 +18,9 @@ library(ggplot2)
 
 #NDS data
 
-setwd("C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/homophony article/NDS")
+folder_path <- "datasets/NDS_dataset"
 
-NDS_data <- read_delim(file.choose(), delim = ";")
+NDS_data <- read.csv("a_class_dataset.csv", sep = ";", header = TRUE)
 
 head(data)
 str(data)
@@ -95,7 +95,7 @@ ggplot(clean_NDS, aes(x = homophony_locality, fill = class_label)) +
 ```{r}
 
 #The glists data
-directory_path <- "C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/homophony article/g-lists"
+directory_path <- "datasets/G_lists_dataset"
 
 #loading the data
 Glists_data <- list.files(directory_path, pattern = "*.csv", full.names = TRUE)
@@ -307,11 +307,11 @@ summary(model_hom_check)
 
 
 ```{r}
-#analysis of the HA dataset
+#analysis of the homophony dataset
 
-setwd("C:/Users/emilijtr/OneDrive - Universitetet i Oslo/Skrivebord/homophony article/ha_database")
+setwd("datasets")
 
-HA_data <- read_delim(file.choose(), delim = ";")
+HA_data <- read.csv("homophony_dataset.csv", sep = ";", header = TRUE)
 
 #EDA: how many localities, municipalities and dialect areas in dataset?
 
